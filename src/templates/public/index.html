@@ -1,13 +1,86 @@
-{% extend "base.html" %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel de chamados de TI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topo">
+    <h1>Painel de chamados de TI</h1>
+  </header>
 
-{%  block content %}
+  <main class="pagina">
+    <form class="filtro" method="get" action="/">
+      <strong class="filtro__titulo">Filtragem:</strong>
+      <label>Data início
+        <input type="date" name="data_inicio" value="{{ data_inicio }}">
+      </label>
+      <label>Data final
+        <input type="date" name="data_final" value="{{ data_final }}">
+      </label>
+      <button type="submit" class="btn">Filtrar</button>
+    </form>
 
-<form action="/" method="POST"> 
-    <input type="text">
-    <input type="text">
-    <input type="text">
-    <input type="text">
-    <input type="text">
-</form>
+    <section class="kpis" aria-label="Indicadores">
+      <article class="kpi">
+        <h2>Chamados em aberto</h2>
+        <p class="kpi__valor">{{ kpis.em_aberto }}</p>
+      </article>
+      <article class="kpi">
+        <h2>Chamados resolvidos</h2>
+        <p class="kpi__valor">{{ kpis.resolvidos }}</p>
+      </article>
+      <article class="kpi">
+        <h2>Tempo médio de resolução</h2>
+        <p class="kpi__valor">{{ kpis.tempo_medio_dias|string|replace('.', ',') }} dias</p>
+      </article>
+      <article class="kpi">
+        <h2>Atendimentos por técnico</h2>
+        <p class="kpi__valor">{{ kpis.atendimentos_por_tecnico|string|replace('.', ',') }}</p>
+      </article>
+    </section>
 
-{%  endblock %} No newline at end of file
+    <section class="grade">
+      <article class="painel">
+        <h2>Chamados por mês</h2>
+        {% if meses %}
+          <div class="barras">
+            {% for m in meses %}
+              <div class="barra" title="{{ m.mes }}: {{ m.total }} chamados">
+                <span class="barra__valor">{{ m.total }}</span>
+                <div class="barra__coluna" style="height: {{ m.altura }}%"></div>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="legenda">
+            {% for m in meses %}<span>{{ m.mes }}</span>{% endfor %}
+          </div>
+        {% else %}
+          <p class="vazio">Nenhum chamado no período selecionado.</p>
+        {% endif %}
+      </article>
+
+      <article class="painel">
+        <h2>Ranking de técnicos</h2>
+        <ol class="ranking">
+          {% for t in ranking %}
+            <li>
+              <div class="ranking__linha"><span>{{ t.tecnico }}</span><strong>{{ t.total }}</strong></div>
+              <div class="ranking__trilho">
+                <div class="ranking__preenchimento" style="width: {{ t.largura }}%"></div>
+              </div>
+            </li>
+          {% else %}
+            <li class="vazio">Sem atendimentos no período.</li>
+          {% endfor %}
+        </ol>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
