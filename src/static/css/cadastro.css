@@ -1,0 +1,75 @@
+/* Estilos extras da tela de cadastro (usa as variáveis do style.css) */
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.campo { display: flex; flex-direction: column; gap: 6px; }
+.campo--largo { grid-column: span 2; }
+.campo label { font-size: .85rem; font-weight: 500; color: var(--texto-suave); }
+.campo input, .campo select {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--texto);
+}
+.campo [aria-invalid="true"] { border-color: #b3261e; }
+.erro { color: #b3261e; font-size: .8rem; }
+
+.acoes {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.acoes .btn { margin-left: 0; text-decoration: none; display: inline-block; }
+.btn--sec {
+  background: var(--fundo);
+  color: var(--texto);
+  border: 1px solid var(--borda);
+}
+.btn--sec:hover { background: var(--borda); }
+.btn--perigo { background: #b3261e; padding: 6px 14px; margin-left: 0; font-size: .85rem; }
+.btn--perigo:hover { background: #8c1d18; }
+
+.aviso {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: .9rem;
+}
+.aviso--ok { background: #dff3ee; color: #0a5d5a; border: 1px solid #a9d9d1; }
+
+.tabela-rolagem { overflow-x: auto; margin-top: 16px; }
+.tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.tabela th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--texto-suave);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--borda);
+}
+.tabela td { padding: 12px; border-bottom: 1px solid var(--fundo); vertical-align: top; }
+.linha-ativa td { background: #eaf5f4; }
+
+/* Editar / Excluir */
+.acoes-linha { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 16px; }
+.link-acao, .excluir summary {
+  color: var(--destaque);
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+.link-acao:hover, .excluir summary:hover { text-decoration: underline; }
+.excluir summary { list-style: none; color: #b3261e; }
+.excluir summary::-webkit-details-marker { display: none; }
+.excluir form { display: flex; align-items: center; gap: 10px; margin-top: 8px; white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .form { grid-template-columns: 1fr; }
+  .campo--largo { grid-column: auto; }
+  .acoes { flex-direction: column-reverse; }
+}

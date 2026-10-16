@@ -1,7 +1,9 @@
 import random
 from datetime import date, datetime, timedelta
+from itertools import count
 
-from flask import Flask, render_template, request
+from flask import Flask, abort, redirect, render_template, request, url_for
+from werkzeug.security import generate_password_hash
 
 app = Flask(__name__)
 
@@ -10,8 +12,10 @@ MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
 TECNICOS = ["Ana Souza", "Bruno Lima", "Carla Dias", "Diego Rocha", "Elisa Prado"]
 
 
+# ---------------------------------------------------------------
+# Dados de exemplo dos chamados (troque por consulta ao banco)
+# ---------------------------------------------------------------
 def gerar_chamados():
-    """Dados de exemplo. Troque por uma consulta ao seu banco (SQLite, MySQL...)."""
     random.seed(42)
     chamados = []
     inicio = date(2026, 4, 1)
@@ -38,6 +42,9 @@ def parse_data(valor):
         return None
 
 
+# ---------------------------------------------------------------
+# Painel
+# ---------------------------------------------------------------
 @app.route("/")
 def index():
     data_inicio = request.args.get("data_inicio", "")
@@ -89,6 +96,124 @@ def index():
         kpis=kpis, meses=meses, ranking=ranking,
         data_inicio=data_inicio, data_final=data_final,
     )
+
+
+# ---------------------------------------------------------------
+# Cadastro de funcionários (CRUD)
+# ---------------------------------------------------------------
+# Lista em memória (some ao reiniciar o servidor). Troque por banco depois.
+FUNCIONARIOS = []
+_proximo_id = count(1)
+
+MENSAGENS = {
+    "criado": "Funcionário cadastrado com sucesso.",
+    "editado": "Funcionário atualizado com sucesso.",
+    "excluido": "Funcionário excluído.",
+}
+
+
+def form_vazio():
+    return {"usuario": "", "tipo": "padrao", "setor": "", "equipe": ""}
+
+
+def buscar_funcionario(func_id):
+    return next((f for f in FUNCIONARIOS if f["id"] == func_id), None)
+
+
+def validar_funcionario(form, senha, editando_id=None):
+    erros = {}
+
+    usuario = form["usuario"]
+    if not usuario:
+        erros["usuario"] = "Informe o nome de usuário."
+    elif " " in usuario:
+        erros["usuario"] = "O nome de usuário não pode ter espaços."
+    elif any(f["usuario"].lower() == usuario.lower() and f["id"] != editando_id
+             for f in FUNCIONARIOS):
+        erros["usuario"] = "Esse nome de usuário já está em uso."
+
+    # Ao editar, senha em branco significa "manter a atual".
+    if (editando_id is None or senha) and len(senha) < 6:
+        erros["senha"] = "A senha precisa ter pelo menos 6 caracteres."
+
+    if not form["setor"]:
+        erros["setor"] = "Informe o setor."
+
+    if form["tipo"] not in ("padrao", "tecnico"):
+        erros["tipo"] = "Escolha o tipo de funcionário."
+    elif form["tipo"] == "tecnico" and not form["equipe"]:
+        erros["equipe"] = "Informe a equipe do técnico."
+
+    return erros
+
+
+def tela_cadastro(form, erros, editando_id=None):
+    return render_template(
+        "public/funcionarios.html",
+        form=form, erros=erros, lista=FUNCIONARIOS, editando_id=editando_id,
+        mensagem=MENSAGENS.get(request.args.get("msg")),
+    )
+
+
+# CREATE + READ (lista)
+@app.route("/funcionarios", methods=["GET", "POST"])
+def funcionarios():
+    form, erros = form_vazio(), {}
+
+    if request.method == "POST":
+        form = {c: request.form.get(c, "").strip() for c in form}
+        senha = request.form.get("senha", "")
+        erros = validar_funcionario(form, senha)
+
+        if not erros:
+            FUNCIONARIOS.append({
+                "id": next(_proximo_id),
+                "usuario": form["usuario"],
+                "senha_hash": generate_password_hash(senha),  # nunca guarde a senha pura
+                "tipo": form["tipo"],
+                "setor": form["setor"],
+                "equipe": form["equipe"] if form["tipo"] == "tecnico" else "",
+            })
+            return redirect(url_for("funcionarios", msg="criado"))
+
+    return tela_cadastro(form, erros)
+
+
+# UPDATE
+@app.route("/funcionarios/<int:func_id>/editar", methods=["GET", "POST"])
+def editar_funcionario(func_id):
+    func = buscar_funcionario(func_id)
+    if func is None:
+        abort(404)
+
+    form = {c: func[c] for c in form_vazio()}
+    erros = {}
+
+    if request.method == "POST":
+        form = {c: request.form.get(c, "").strip() for c in form}
+        senha = request.form.get("senha", "")
+        erros = validar_funcionario(form, senha, editando_id=func_id)
+
+        if not erros:
+            func["usuario"] = form["usuario"]
+            func["tipo"] = form["tipo"]
+            func["setor"] = form["setor"]
+            func["equipe"] = form["equipe"] if form["tipo"] == "tecnico" else ""
+            if senha:
+                func["senha_hash"] = generate_password_hash(senha)
+            return redirect(url_for("funcionarios", msg="editado"))
+
+    return tela_cadastro(form, erros, editando_id=func_id)
+
+
+# DELETE
+@app.route("/funcionarios/<int:func_id>/excluir", methods=["POST"])
+def excluir_funcionario(func_id):
+    func = buscar_funcionario(func_id)
+    if func is None:
+        abort(404)
+    FUNCIONARIOS.remove(func)
+    return redirect(url_for("funcionarios", msg="excluido"))
 
 
 if __name__ == "__main__":
