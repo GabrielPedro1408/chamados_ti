@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ 'Editar funcionário' if editando_id else 'Cadastro de funcionário' }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/menu.css') }}">
+</head>
+<body>
+  <div class="layout">
+    {% include "partials/menu.html" %}
+
+    <div class="conteudo">
+      <main class="pagina">
+        <h2 class="titulo-pagina">
+          {{ 'Editar funcionário' if editando_id else 'Cadastro de funcionário' }}
+        </h2>
+
+        {% if mensagem %}
+          <p class="aviso aviso--ok" role="status">{{ mensagem }}</p>
+        {% endif %}
+
+        <form class="painel form" method="post" novalidate
+              action="{{ url_for('editar_funcionario', func_id=editando_id) if editando_id else url_for('funcionarios') }}">
+
+          <div class="campo campo--largo">
+            <label for="usuario">Nome de usuário (sem espaço)</label>
+            <input type="text" id="usuario" name="usuario" value="{{ form.usuario }}"
+                   autocomplete="off" {% if erros.usuario %}aria-invalid="true"{% endif %}>
+            {% if erros.usuario %}<small class="erro">{{ erros.usuario }}</small>{% endif %}
+          </div>
+
+          <div class="campo">
+            <label for="senha">{{ 'Nova senha (vazio mantém a atual)' if editando_id else 'Senha' }}</label>
+            <input type="password" id="senha" name="senha" autocomplete="new-password"
+                   {% if erros.senha %}aria-invalid="true"{% endif %}>
+            {% if erros.senha %}<small class="erro">{{ erros.senha }}</small>{% endif %}
+          </div>
+
+          <div class="campo">
+            <label for="tipo">Tipo: padrão / técnico</label>
+            <select id="tipo" name="tipo">
+              <option value="padrao" {% if form.tipo == 'padrao' %}selected{% endif %}>Padrão</option>
+              <option value="tecnico" {% if form.tipo == 'tecnico' %}selected{% endif %}>Técnico</option>
+            </select>
+          </div>
+
+          <div class="campo">
+            <label for="setor">Setor</label>
+            <input type="text" id="setor" name="setor" value="{{ form.setor }}"
+                   {% if erros.setor %}aria-invalid="true"{% endif %}>
+            {% if erros.setor %}<small class="erro">{{ erros.setor }}</small>{% endif %}
+          </div>
+
+          <div class="campo">
+            <label for="equipe">Equipe (se técnico)</label>
+            <input type="text" id="equipe" name="equipe" value="{{ form.equipe }}"
+                   {% if erros.equipe %}aria-invalid="true"{% endif %}>
+            {% if erros.equipe %}<small class="erro">{{ erros.equipe }}</small>{% endif %}
+          </div>
+
+          <div class="acoes">
+            <a class="btn btn--sec" href="{{ url_for('funcionarios') }}">Cancelar</a>
+            <button type="submit" class="btn">{{ 'Salvar alterações' if editando_id else 'Salvar' }}</button>
+          </div>
+        </form>
+
+        <section class="painel">
+          <h2>Funcionários cadastrados</h2>
+          {% if lista %}
+            <div class="tabela-rolagem">
+              <table class="tabela">
+                <thead>
+                  <tr><th>Usuário</th><th>Tipo</th><th>Setor</th><th>Equipe</th><th>Ações</th></tr>
+                </thead>
+                <tbody>
+                  {% for f in lista %}
+                    <tr {% if f.id == editando_id %}class="linha-ativa"{% endif %}>
+                      <td>{{ f.usuario }}</td>
+                      <td>{{ 'Técnico' if f.tipo == 'tecnico' else 'Padrão' }}</td>
+                      <td>{{ f.setor }}</td>
+                      <td>{{ f.equipe or '–' }}</td>
+                      <td>
+                        <div class="acoes-linha">
+                          <a class="link-acao" href="{{ url_for('editar_funcionario', func_id=f.id) }}">Editar</a>
+                          <details class="excluir">
+                            <summary>Excluir</summary>
+                            <form method="post" action="{{ url_for('excluir_funcionario', func_id=f.id) }}">
+                              <span>Excluir {{ f.usuario }}?</span>
+                              <button type="submit" class="btn btn--perigo">Confirmar</button>
+                            </form>
+                          </details>
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="vazio">Nenhum funcionário cadastrado. Preencha o formulário acima para adicionar o primeiro.</p>
+          {% endif %}
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

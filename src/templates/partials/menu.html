@@ -1,0 +1,11 @@
+<aside class="menu" aria-label="Menu principal">
+  <p class="menu__marca">Chamados de TI</p>
+  <nav>
+    <a href="{{ url_for('index') }}" {% if request.path == '/' %}aria-current="page"{% endif %}>
+      Painel
+    </a>
+    <a href="{{ url_for('funcionarios') }}" {% if request.path.startswith('/funcionarios') %}aria-current="page"{% endif %}>
+      Cadastro de funcionários
+    </a>
+  </nav>
+</aside>
