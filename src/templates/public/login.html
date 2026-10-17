@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar | Deskly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+</head>
+<body>
+  <main class="login">
+    <form class="painel form" method="post" novalidate>
+      <h1 class="login__titulo">Deskly</h1>
+      
+      {% for mensagem in get_flashed_messages() %}
+        <p class="erro" role="alert">{{ mensagem }}</p>
+      {% endfor %}
+
+      <div class="campo">
+        <label for="usuario">Usuário</label>
+       <input type="text" id="usuario" name="usuario" value="{{ usuario }}" autocomplete="username">  
+      </div>
+
+      <div class="campo">
+        <label for="senha">Senha</label>
+        <input type="password" id="senha" name="senha" autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="btn">Entrar</button>
+    </form>
+    </main>
+
+  <script>
+    // Usuário sempre em MAIÚSCULAS e sem espaço, já enquanto a pessoa digita
+    const campoUsuario = document.getElementById("usuario");
+    campoUsuario.addEventListener("input", function () {
+      campoUsuario.value = campoUsuario.value.toUpperCase().replaceAll(" ", "");
+    });
+  </script>
+</body>
+</html>
