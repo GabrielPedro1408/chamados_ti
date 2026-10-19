@@ -1,11 +1,17 @@
 <aside class="menu" aria-label="Menu principal">
-  <p class="menu__marca">Chamados de TI</p>
+  <div class="menu__topo">
+    <p class="menu__marca">Chamados de TI</p>
+    {% if empresa_atual %}<p class="menu__empresa">{{ empresa_atual.razao_social }}</p>{% endif %}
+  </div>
   <nav>
-    <a href="{{ url_for('index') }}" {% if request.path == '/' %}aria-current="page"{% endif %}>
+    <a href="{{ url_for('painel') }}" {% if request.path == '/painel' %}aria-current="page"{% endif %}>
       Painel
     </a>
+    {% if e_empresa %}
     <a href="{{ url_for('funcionarios') }}" {% if request.path.startswith('/funcionarios') %}aria-current="page"{% endif %}>
       Cadastro de funcionários
     </a>
+    {% endif %}
+    <a href="{{ url_for('sair') }}">Sair</a>
   </nav>
 </aside>

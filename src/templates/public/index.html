@@ -18,7 +18,7 @@
       <main class="pagina">
         <h2 class="titulo-pagina">Painel de chamados</h2>
 
-        <form class="filtro" method="get" action="/">
+        <form class="filtro" method="get" action="{{ url_for('painel') }}">
           <strong class="filtro__titulo">Filtragem:</strong>
           <label>Data início
             <input type="date" name="data_inicio" value="{{ data_inicio }}">

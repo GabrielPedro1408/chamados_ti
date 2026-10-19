@@ -1,11 +1,15 @@
 import random
+import re
+from functools import wraps
 from datetime import date, datetime, timedelta
 from itertools import count
 
-from flask import Flask, abort, redirect, render_template, request, url_for
-from werkzeug.security import generate_password_hash
+from flask import Flask, abort, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+# Chave usada para assinar a sessão de login. Troque por um valor secreto seu.
+app.secret_key = "troque-esta-chave-secreta"
 
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
          "jul", "ago", "set", "out", "nov", "dez"]
@@ -43,10 +47,176 @@ def parse_data(valor):
 
 
 # ---------------------------------------------------------------
-# Painel
+# Tela inicial e acessos
 # ---------------------------------------------------------------
 @app.route("/")
-def index():
+def inicio():
+    return render_template("public/inicio.html")
+
+
+# Regra de negócio: a EMPRESA se cadastra sozinha; o FUNCIONÁRIO não tem
+# autocadastro, ele é criado pela empresa em /funcionarios.
+@app.route("/login/funcionario", methods=["GET", "POST"])
+def login_funcionario():
+    usuario_digitado, erros = "", {}
+
+    if request.method == "POST":
+        usuario_digitado = request.form.get("usuario", "").strip()
+        senha = request.form.get("senha", "")
+
+        if " " in usuario_digitado:
+            erros["usuario"] = "O nome de usuário não pode ter espaços."
+        else:
+            func = next(
+                (f for f in FUNCIONARIOS if f["usuario"].lower() == usuario_digitado.lower()),
+                None,
+            )
+            if func and check_password_hash(func["senha_hash"], senha):
+                session.clear()
+                session["funcionario_id"] = func["id"]
+                return redirect(url_for("painel"))
+            erros["geral"] = "Usuário ou senha inválidos."
+
+    return render_template("public/loginFuncionario.html", usuario=usuario_digitado, erros=erros)
+
+
+# ---------------------------------------------------------------
+# Empresa: cadastro, login e logout
+# ---------------------------------------------------------------
+# Lista em memória (some ao reiniciar o servidor). Troque por banco depois.
+EMPRESAS = []
+
+
+def so_digitos(texto):
+    return re.sub(r"\D", "", texto)
+
+
+def formatar_cnpj(d):
+    return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+
+
+def cnpj_valido(d):
+    """Confere 14 dígitos e os dois dígitos verificadores."""
+    if len(d) != 14 or d == d[0] * 14:
+        return False
+    for tam in (12, 13):
+        pesos = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+        pesos = ([6] + pesos) if tam == 13 else pesos
+        soma = sum(int(n) * p for n, p in zip(d[:tam], pesos))
+        digito = 11 - soma % 11
+        digito = 0 if digito >= 10 else digito
+        if int(d[tam]) != digito:
+            return False
+    return True
+
+
+def buscar_empresa(cnpj):
+    return next((e for e in EMPRESAS if e["cnpj"] == cnpj), None)
+
+
+def login_obrigatorio(view):
+    """Só deixa entrar quem fez login como EMPRESA."""
+    @wraps(view)
+    def protegida(*args, **kwargs):
+        if not buscar_empresa(session.get("empresa_cnpj", "")):
+            session.clear()
+            return redirect(url_for("login_empresa"))
+        return view(*args, **kwargs)
+    return protegida
+
+
+def acesso_obrigatorio(view):
+    """Deixa entrar quem fez login como EMPRESA ou como FUNCIONÁRIO."""
+    @wraps(view)
+    def protegida(*args, **kwargs):
+        empresa_ok = buscar_empresa(session.get("empresa_cnpj", ""))
+        funcionario_ok = buscar_funcionario(session.get("funcionario_id", -1))
+        if not (empresa_ok or funcionario_ok):
+            session.clear()
+            return redirect(url_for("inicio"))
+        return view(*args, **kwargs)
+    return protegida
+
+
+@app.context_processor
+def dados_do_menu():
+    """Variáveis disponíveis em todos os templates (usadas no menu lateral)."""
+    empresa = buscar_empresa(session.get("empresa_cnpj", ""))
+    return {"empresa_atual": empresa, "e_empresa": empresa is not None}
+
+
+@app.route("/cadastro/empresa", methods=["GET", "POST"])
+def cadastro_empresa():
+    cnpj_digitado, razao, erros = "", "", {}
+
+    if request.method == "POST":
+        razao = " ".join(request.form.get("razao_social", "").split())
+        cnpj_digitado = request.form.get("cnpj", "").strip()
+        senha = request.form.get("senha", "")
+        cnpj = so_digitos(cnpj_digitado)
+
+        if len(razao) < 3:
+            erros["razao_social"] = "Informe a razão social da empresa."
+        elif len(razao) > 120:
+            erros["razao_social"] = "A razão social deve ter no máximo 120 caracteres."
+
+        if re.search(r"[^\d./-]", cnpj_digitado):
+            erros["cnpj"] = "O CNPJ deve ter apenas números."
+        elif not cnpj_valido(cnpj):
+            erros["cnpj"] = "Informe um CNPJ válido (14 números)."
+        elif buscar_empresa(cnpj):
+            erros["cnpj"] = "Esse CNPJ já está cadastrado."
+        if len(senha) < 6:
+            erros["senha"] = "A senha precisa ter pelo menos 6 caracteres."
+
+        if not erros:
+            EMPRESAS.append({
+                "razao_social": razao,
+                "cnpj": cnpj,
+                "senha_hash": generate_password_hash(senha),  # nunca guarde a senha pura
+            })
+            return redirect(url_for("login_empresa", msg="cadastrada"))
+
+    return render_template(
+        "public/cadastroEmpresa.html", titulo="Cadastro de empresa", botao="Cadastrar",
+        cadastro=True, cnpj=cnpj_digitado, razao_social=razao, erros=erros, mensagem=None,
+    )
+
+
+@app.route("/login/empresa", methods=["GET", "POST"])
+def login_empresa():
+    cnpj_digitado, erros = "", {}
+
+    if request.method == "POST":
+        cnpj_digitado = request.form.get("cnpj", "").strip()
+        senha = request.form.get("senha", "")
+        empresa = buscar_empresa(so_digitos(cnpj_digitado))
+
+        if empresa and check_password_hash(empresa["senha_hash"], senha):
+            session.clear()
+            session["empresa_cnpj"] = empresa["cnpj"]
+            return redirect(url_for("painel"))
+        erros["geral"] = "CNPJ ou senha inválidos."
+
+    mensagem = "Empresa cadastrada! Agora é só entrar." if request.args.get("msg") == "cadastrada" else None
+    return render_template(
+        "public/cadastroEmpresa.html", titulo="Login", botao="Entrar",
+        cadastro=False, cnpj=cnpj_digitado, razao_social="", erros=erros, mensagem=mensagem,
+    )
+
+
+@app.route("/sair")
+def sair():
+    session.clear()
+    return redirect(url_for("inicio"))
+
+
+# ---------------------------------------------------------------
+# Painel
+# ---------------------------------------------------------------
+@app.route("/painel")
+@acesso_obrigatorio
+def painel():
     data_inicio = request.args.get("data_inicio", "")
     data_final = request.args.get("data_final", "")
     ini = parse_data(data_inicio)
@@ -157,6 +327,7 @@ def tela_cadastro(form, erros, editando_id=None):
 
 # CREATE + READ (lista)
 @app.route("/funcionarios", methods=["GET", "POST"])
+@login_obrigatorio
 def funcionarios():
     form, erros = form_vazio(), {}
 
@@ -181,6 +352,7 @@ def funcionarios():
 
 # UPDATE
 @app.route("/funcionarios/<int:func_id>/editar", methods=["GET", "POST"])
+@login_obrigatorio
 def editar_funcionario(func_id):
     func = buscar_funcionario(func_id)
     if func is None:
@@ -208,6 +380,7 @@ def editar_funcionario(func_id):
 
 # DELETE
 @app.route("/funcionarios/<int:func_id>/excluir", methods=["POST"])
+@login_obrigatorio
 def excluir_funcionario(func_id):
     func = buscar_funcionario(func_id)
     if func is None:

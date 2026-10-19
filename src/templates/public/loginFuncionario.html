@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login do funcionário</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastroEmpresa.css') }}">
+</head>
+<body class="auth">
+  <main class="auth__conteudo">
+    <h1 class="auth__titulo">Login do funcionário</h1>
+
+    {% if erros.geral %}
+      <p class="aviso aviso--erro" role="alert">{{ erros.geral }}</p>
+    {% endif %}
+
+    <form class="auth__card" method="post" novalidate>
+      <div class="campo">
+        <label for="usuario">Nome de usuário</label>
+        <input type="text" id="usuario" name="usuario" value="{{ usuario }}"
+               autocomplete="username" autocapitalize="none" spellcheck="false"
+               {% if erros.usuario %}aria-invalid="true"{% endif %}>
+        {% if erros.usuario %}<small class="erro">{{ erros.usuario }}</small>{% endif %}
+      </div>
+
+      <div class="campo">
+        <label for="senha">Senha</label>
+        <input type="password" id="senha" name="senha" autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="btn btn--grande">Entrar</button>
+    </form>
+
+    <p class="auth__links">
+      O acesso é criado pela sua empresa.
+      <span aria-hidden="true">·</span>
+      <a href="{{ url_for('inicio') }}">Voltar ao início</a>
+    </p>
+  </main>
+
+  <!-- Impede espaços no nome de usuário enquanto digita.
+       Se apagar este bloco, o servidor continua recusando espaços. -->
+  <script>
+    const campoUsuario = document.getElementById("usuario");
+    campoUsuario.addEventListener("input", () => {
+      campoUsuario.value = campoUsuario.value.replace(/\s/g, "");
+    });
+  </script>
+</body>
+</html>
