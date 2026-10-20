@@ -2,10 +2,11 @@ import random
 from datetime import date, datetime, timedelta
 from itertools import count
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, get_flashed_messages, redirect, render_template, request, session, url_for
 from werkzeug.security import generate_password_hash
 
 app = Flask(__name__)
+app.secret_key = "deskly-desenvolvimento"  
 
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
          "jul", "ago", "set", "out", "nov", "dez"]
@@ -216,5 +217,116 @@ def excluir_funcionario(func_id):
     return redirect(url_for("funcionarios", msg="excluido"))
 
 
+
+
+# Login
+
+USUARIOS_MOCK = [
+    {"id": 1, "usuario": "FELIPE", "senha": "123456", "tipo": "padrao", "id_empresa": 1},
+    {"id": 2, "usuario": "RAPHAEL", "senha": "654321", "tipo": "tecnico", "id_empresa": 1},
+]
+
+
+def autenticar(usuario, senha):
+    for conta in USUARIOS_MOCK:
+        if conta["usuario"] == usuario and conta["senha"] == senha:
+            return conta
+    return None
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    usuario = ""
+
+    if request.method == "POST":
+        usuario = request.form.get("usuario", "").upper().replace(" ", "")
+        senha = request.form.get("senha", "")
+        conta = autenticar(usuario, senha)
+
+        if conta is None:
+            flash("Usuário ou senha inválidos.")
+        else:
+            session["id_usuario"] = conta["id"]
+            session["id_empresa"] = conta["id_empresa"]
+            session["tipo"] = conta["tipo"]
+
+            if conta["tipo"] == "tecnico":
+                return redirect(url_for("dashboard_tecnico"))
+            return redirect(url_for("meus_chamados"))
+
+    return render_template("public/login.html", usuario=usuario)
+
+
+
+@app.route("/meus-chamados")
+def meus_chamados():
+    avisos = " ".join(get_flashed_messages())
+    total = len(CHAMADOS_MOCK)
+    return (
+        f'{avisos} Meus chamados (em construção): {total} chamado(s) | '
+        f'<a href="{url_for("abrir_chamado")}">Abrir chamado</a> | '
+        f'<a href="{url_for("logout")}">Sair</a>'
+    )
+
+
+@app.route("/tecnico")
+def dashboard_tecnico():
+    return f'Dashboard do técnico (em construção) | <a href="{url_for("logout")}">Sair</a>'
+
+
+
+# Abrir chamado (funcionário padrão)
+
+LIMITE_DESCRICAO = 500
+
+
+CHAMADOS_MOCK = []
+_proximo_chamado = count(1)
+
+
+def salvar_chamado(id_empresa, id_funcionario, descricao):
+    
+    CHAMADOS_MOCK.append({
+        "id": next(_proximo_chamado),
+        "id_empresa": id_empresa,
+        "id_funcionario": id_funcionario,
+        "descricao": descricao,
+        "status": "aguardando",
+        "aberto_em": datetime.now(),
+    })
+
+
+@app.route("/abrir-chamado", methods=["GET", "POST"])
+def abrir_chamado():
+    descricao, erro = "", None
+
+    if request.method == "POST":
+        descricao = request.form.get("descricao", "").strip()
+
+        if not descricao:
+            erro = "Descreva o problema antes de abrir o chamado."
+        elif len(descricao) > LIMITE_DESCRICAO:
+            erro = f"A descrição pode ter no máximo {LIMITE_DESCRICAO} caracteres."
+        else:
+            salvar_chamado(session.get("id_empresa"), session.get("id_usuario"), descricao)
+            flash("Chamado aberto com sucesso!")
+            return redirect(url_for("meus_chamados"))
+
+    return render_template(
+        "public/abrir_chamado.html",
+        descricao=descricao, erro=erro, limite=LIMITE_DESCRICAO,
+    )
+
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+
 if __name__ == "__main__":
     app.run(debug=True)
+
+    

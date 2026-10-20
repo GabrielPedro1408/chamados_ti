@@ -1,0 +1,25 @@
+/* Estilos das telas de chamado do funcionário (usa as variáveis do style.css) */
+
+.topo--portal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.topo--portal a { color: #fff; text-decoration: none; font-weight: 500; }
+.topo--portal a:hover { text-decoration: underline; }
+
+.pagina--estreita { max-width: 760px; }
+
+.form--uma-coluna { grid-template-columns: 1fr; }
+
+.campo textarea {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--texto);
+  min-height: 160px;
+  resize: vertical;
+}
+.contador { align-self: flex-end; font-size: .8rem; color: var(--texto-suave); }
