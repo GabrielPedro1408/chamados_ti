@@ -2,7 +2,7 @@ import random
 from datetime import date, datetime, timedelta
 from itertools import count
 
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, get_flashed_messages, redirect, render_template, request, session, url_for
 from werkzeug.security import generate_password_hash
 
 app = Flask(__name__)
@@ -260,12 +260,63 @@ def login():
 
 @app.route("/meus-chamados")
 def meus_chamados():
-    return f'Meus chamados (em construção) | <a href="{url_for("logout")}">Sair</a>'
+    avisos = " ".join(get_flashed_messages())
+    total = len(CHAMADOS_MOCK)
+    return (
+        f'{avisos} Meus chamados (em construção): {total} chamado(s) | '
+        f'<a href="{url_for("abrir_chamado")}">Abrir chamado</a> | '
+        f'<a href="{url_for("logout")}">Sair</a>'
+    )
 
 
 @app.route("/tecnico")
 def dashboard_tecnico():
     return f'Dashboard do técnico (em construção) | <a href="{url_for("logout")}">Sair</a>'
+
+
+
+# Abrir chamado (funcionário padrão)
+
+LIMITE_DESCRICAO = 500
+
+
+CHAMADOS_MOCK = []
+_proximo_chamado = count(1)
+
+
+def salvar_chamado(id_empresa, id_funcionario, descricao):
+    
+    CHAMADOS_MOCK.append({
+        "id": next(_proximo_chamado),
+        "id_empresa": id_empresa,
+        "id_funcionario": id_funcionario,
+        "descricao": descricao,
+        "status": "aguardando",
+        "aberto_em": datetime.now(),
+    })
+
+
+@app.route("/abrir-chamado", methods=["GET", "POST"])
+def abrir_chamado():
+    descricao, erro = "", None
+
+    if request.method == "POST":
+        descricao = request.form.get("descricao", "").strip()
+
+        if not descricao:
+            erro = "Descreva o problema antes de abrir o chamado."
+        elif len(descricao) > LIMITE_DESCRICAO:
+            erro = f"A descrição pode ter no máximo {LIMITE_DESCRICAO} caracteres."
+        else:
+            salvar_chamado(session.get("id_empresa"), session.get("id_usuario"), descricao)
+            flash("Chamado aberto com sucesso!")
+            return redirect(url_for("meus_chamados"))
+
+    return render_template(
+        "public/abrir_chamado.html",
+        descricao=descricao, erro=erro, limite=LIMITE_DESCRICAO,
+    )
+
 
 
 @app.route("/logout")
