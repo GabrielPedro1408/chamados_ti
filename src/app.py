@@ -258,15 +258,7 @@ def login():
 
 
 
-@app.route("/meus-chamados")
-def meus_chamados():
-    avisos = " ".join(get_flashed_messages())
-    total = len(CHAMADOS_MOCK)
-    return (
-        f'{avisos} Meus chamados (em construção): {total} chamado(s) | '
-        f'<a href="{url_for("abrir_chamado")}">Abrir chamado</a> | '
-        f'<a href="{url_for("logout")}">Sair</a>'
-    )
+
 
 
 @app.route("/tecnico")
@@ -317,6 +309,63 @@ def abrir_chamado():
         descricao=descricao, erro=erro, limite=LIMITE_DESCRICAO,
     )
 
+
+
+# Meus chamados (funcionário padrão)
+
+def listar_chamados_do_funcionario(id_empresa, id_funcionario):
+    meus = []
+    for chamado in CHAMADOS_MOCK:
+        if chamado["id_empresa"] == id_empresa and chamado["id_funcionario"] == id_funcionario:
+            meus.append(chamado)
+    return meus
+
+
+def posicao_na_fila(chamado):
+    posicao = 1
+    for outro in CHAMADOS_MOCK:
+        if (outro["id_empresa"] == chamado["id_empresa"]
+                and outro["status"] == "aguardando"
+                and outro["aberto_em"] < chamado["aberto_em"]):
+            posicao += 1
+    return posicao
+
+
+def excluir_chamado(id_empresa, id_funcionario, id_chamado):
+    for chamado in CHAMADOS_MOCK:
+        if (chamado["id"] == id_chamado
+                and chamado["id_empresa"] == id_empresa
+                and chamado["id_funcionario"] == id_funcionario):
+            CHAMADOS_MOCK.remove(chamado)
+            return True
+    return False
+
+
+@app.route("/meus-chamados")
+def meus_chamados():
+    chamados = listar_chamados_do_funcionario(session.get("id_empresa"), session.get("id_usuario"))
+
+    agora = datetime.now()
+    total_mes = 0
+    for chamado in chamados:
+        if chamado["aberto_em"].month == agora.month and chamado["aberto_em"].year == agora.year:
+            total_mes += 1
+
+        if chamado["status"] == "aguardando":
+            chamado["posicao"] = posicao_na_fila(chamado)
+        else:
+            chamado["posicao"] = None
+
+    return render_template("public/meus_chamados.html", chamados=chamados, total_mes=total_mes)
+
+
+@app.route("/meus-chamados/<int:id_chamado>/excluir", methods=["POST"])
+def excluir_meu_chamado(id_chamado):
+    excluiu = excluir_chamado(session.get("id_empresa"), session.get("id_usuario"), id_chamado)
+    if not excluiu:
+        abort(404)
+    flash("Chamado excluído.")
+    return redirect(url_for("meus_chamados"))
 
 
 @app.route("/logout")
