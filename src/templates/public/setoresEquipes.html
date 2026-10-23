@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cadastro de setores e equipes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/menu.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/setores.css') }}">
+</head>
+<body>
+  <div class="layout">
+    {% include "partials/menu.html" %}
+
+    <div class="conteudo">
+      <main class="pagina">
+        <h2 class="titulo-pagina">Cadastro de setores e equipes</h2>
+
+        {% if mensagem %}
+          <p class="aviso aviso--{{ 'erro' if mensagem_erro else 'ok' }}" role="status">{{ mensagem }}</p>
+        {% endif %}
+
+        <div class="colunas">
+          <!-- Setores -->
+          <section class="painel">
+            <h2>Setores</h2>
+            <form class="adicionar" method="post" action="{{ url_for('adicionar_setor') }}" novalidate>
+              <label class="sr-only" for="novo-setor">Nome do setor</label>
+              <input type="text" id="novo-setor" name="nome" maxlength="50"
+                     placeholder="Nome do setor" autocomplete="off"
+                     value="{{ digitado.setor or '' }}"
+                     {% if erros.setor %}aria-invalid="true"{% endif %}>
+              <button type="submit" class="btn btn--mais" aria-label="Adicionar setor">+</button>
+            </form>
+            {% if erros.setor %}<small class="erro">{{ erros.setor }}</small>{% endif %}
+
+            <ul class="lista-itens">
+              {% for s in setores %}
+                <li>
+                  <span>{{ s.nome }}</span>
+                  <details class="excluir">
+                    <summary>Excluir</summary>
+                    <form method="post" action="{{ url_for('excluir_setor', item_id=s.id) }}">
+                      <span>Excluir {{ s.nome }}?</span>
+                      <button type="submit" class="btn btn--perigo">Confirmar</button>
+                    </form>
+                  </details>
+                </li>
+              {% else %}
+                <li class="vazio">Nenhum setor cadastrado.</li>
+              {% endfor %}
+            </ul>
+          </section>
+
+          <!-- Equipes técnicas -->
+          <section class="painel">
+            <h2>Equipes técnicas</h2>
+            <form class="adicionar" method="post" action="{{ url_for('adicionar_equipe') }}" novalidate>
+              <label class="sr-only" for="nova-equipe">Nome da equipe</label>
+              <input type="text" id="nova-equipe" name="nome" maxlength="50"
+                     placeholder="Nome da equipe" autocomplete="off"
+                     value="{{ digitado.equipe or '' }}"
+                     {% if erros.equipe %}aria-invalid="true"{% endif %}>
+              <button type="submit" class="btn btn--mais" aria-label="Adicionar equipe">+</button>
+            </form>
+            {% if erros.equipe %}<small class="erro">{{ erros.equipe }}</small>{% endif %}
+
+            <ul class="lista-itens">
+              {% for e in equipes %}
+                <li>
+                  <span>{{ e.nome }}</span>
+                  <details class="excluir">
+                    <summary>Excluir</summary>
+                    <form method="post" action="{{ url_for('excluir_equipe', item_id=e.id) }}">
+                      <span>Excluir {{ e.nome }}?</span>
+                      <button type="submit" class="btn btn--perigo">Confirmar</button>
+                    </form>
+                  </details>
+                </li>
+              {% else %}
+                <li class="vazio">Nenhuma equipe cadastrada.</li>
+              {% endfor %}
+            </ul>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,7 +1,8 @@
 import random
 import re
+from collections import Counter
+from datetime import date, datetime, time, timedelta
 from functools import wraps
-from datetime import date, datetime, timedelta
 from itertools import count
 
 from flask import Flask, abort, redirect, render_template, request, session, url_for
@@ -13,30 +14,53 @@ app.secret_key = "troque-esta-chave-secreta"
 
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
          "jul", "ago", "set", "out", "nov", "dez"]
-TECNICOS = ["Ana Souza", "Bruno Lima", "Carla Dias", "Diego Rocha", "Elisa Prado"]
-
+MESES_COMPLETOS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+                   "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+# Cores dos técnicos no gráfico (se houver mais técnicos que cores, elas se repetem).
+PALETA = ["#0f7c78", "#d97706", "#3b6fb6", "#b3446c", "#6b8e23", "#7a5195"]
 
 # ---------------------------------------------------------------
-# Dados de exemplo dos chamados (troque por consulta ao banco)
+# Dados de exemplo dos chamados
 # ---------------------------------------------------------------
-def gerar_chamados():
-    random.seed(42)
+# Ainda não existe cadastro de chamados no sistema: estes são FICTÍCIOS, só para
+# o dashboard ter o que mostrar. Quando houver banco, troque esta função por uma
+# consulta que devolva uma lista de dicionários com as mesmas chaves:
+#   id, tecnico, funcionario, aberto_em (datetime), resolvido_em (datetime ou None)
+TECNICOS_EXEMPLO = ["Ana Souza", "Bruno Lima", "Carla Dias", "Diego Rocha"]
+FUNCIONARIOS_EXEMPLO = ["Fernanda Alves", "Gustavo Reis", "Helena Costa",
+                        "Igor Martins", "Júlia Pires", "Lucas Nunes"]
+
+
+def primeiro_dia_mes(d, deslocamento=0):
+    """Primeiro dia do mês de `d`, andando `deslocamento` meses (pode ser negativo)."""
+    total = d.year * 12 + d.month - 1 + deslocamento
+    return date(total // 12, total % 12 + 1, 1)
+
+
+def chamados_exemplo():
+    rnd = random.Random(42)  # semente fixa: os números não mudam a cada atualização
+    hoje = date.today()
+    inicio = primeiro_dia_mes(hoje, -5)
+    dias = (hoje - inicio).days + 1
+    agora = datetime.now()
+
     chamados = []
-    inicio = date(2026, 4, 1)
-    for i in range(1, 241):
-        aberto_em = inicio + timedelta(days=random.randint(0, 182))
-        resolvido = random.random() < 0.78
-        resolvido_em = (aberto_em + timedelta(days=random.randint(0, 6))) if resolvido else None
+    for i in range(1, 221):
+        dia = inicio + timedelta(days=rnd.randrange(dias))
+        aberto_em = datetime.combine(dia, time(rnd.randint(8, 17), rnd.choice([0, 15, 30, 45])))
+        foi_resolvido = rnd.random() < 0.75
+        horas = rnd.uniform(1, 80)
+        tecnico = rnd.choice(TECNICOS_EXEMPLO)
+        funcionario = rnd.choice(FUNCIONARIOS_EXEMPLO)
+
+        resolvido_em = aberto_em + timedelta(hours=horas) if foi_resolvido else None
+        if resolvido_em and resolvido_em > agora:  # ainda não deu tempo de resolver
+            resolvido_em = None
         chamados.append({
-            "id": i,
-            "tecnico": random.choice(TECNICOS),
-            "aberto_em": aberto_em,
-            "resolvido_em": resolvido_em,
+            "id": i, "tecnico": tecnico, "funcionario": funcionario,
+            "aberto_em": aberto_em, "resolvido_em": resolvido_em,
         })
     return chamados
-
-
-CHAMADOS = gerar_chamados()
 
 
 def parse_data(valor):
@@ -74,7 +98,7 @@ def login_funcionario():
             if func and check_password_hash(func["senha_hash"], senha):
                 session.clear()
                 session["funcionario_id"] = func["id"]
-                return redirect(url_for("painel"))
+                return redirect(url_for("dashboard"))
             erros["geral"] = "Usuário ou senha inválidos."
 
     return render_template("public/loginFuncionario.html", usuario=usuario_digitado, erros=erros)
@@ -195,7 +219,7 @@ def login_empresa():
         if empresa and check_password_hash(empresa["senha_hash"], senha):
             session.clear()
             session["empresa_cnpj"] = empresa["cnpj"]
-            return redirect(url_for("painel"))
+            return redirect(url_for("dashboard"))
         erros["geral"] = "CNPJ ou senha inválidos."
 
     mensagem = "Empresa cadastrada! Agora é só entrar." if request.args.get("msg") == "cadastrada" else None
@@ -212,60 +236,189 @@ def sair():
 
 
 # ---------------------------------------------------------------
-# Painel
+# Dashboard
 # ---------------------------------------------------------------
-@app.route("/painel")
-@acesso_obrigatorio
-def painel():
-    data_inicio = request.args.get("data_inicio", "")
-    data_final = request.args.get("data_final", "")
-    ini = parse_data(data_inicio)
-    fim = parse_data(data_final)
+def formatar_duracao(horas):
+    if horas is None:
+        return "–"
+    if horas < 1:
+        return f"{round(horas * 60)} min"
+    if horas < 48:
+        return f"{horas:.1f} h".replace(".", ",")
+    return f"{horas / 24:.1f} dias".replace(".", ",")
 
-    dados = [
-        c for c in CHAMADOS
-        if (not ini or c["aberto_em"] >= ini) and (not fim or c["aberto_em"] <= fim)
+
+def meses_do_periodo(ini, fim, limite=12):
+    """Lista de (ano, mês) entre as duas datas; devolve no máximo os últimos `limite`."""
+    atual, ultimo = primeiro_dia_mes(ini), primeiro_dia_mes(fim)
+    meses = []
+    while atual <= ultimo:
+        meses.append((atual.year, atual.month))
+        atual = primeiro_dia_mes(atual, 1)
+    return meses[-limite:], len(meses) > limite
+
+
+def montar_dashboard(chamados, ini, fim):
+    """Calcula tudo que o dashboard mostra. Regra: só entram chamados ABERTOS no período."""
+    no_periodo = [c for c in chamados if ini <= c["aberto_em"].date() <= fim]
+    resolvidos = [c for c in no_periodo if c["resolvido_em"]]
+    abertos = [c for c in no_periodo if not c["resolvido_em"]]
+
+    tempo_medio = None
+    if resolvidos:
+        total_horas = sum((c["resolvido_em"] - c["aberto_em"]).total_seconds() / 3600 for c in resolvidos)
+        tempo_medio = total_horas / len(resolvidos)
+
+    # Card 2: chamados em aberto por funcionário, no mês da Data final
+    inicio_mes = max(ini, fim.replace(day=1))
+    abertos_mes = [c for c in abertos if inicio_mes <= c["aberto_em"].date() <= fim]
+    por_funcionario = Counter(c["funcionario"] for c in abertos_mes).most_common()
+    por_funcionario.sort(key=lambda x: (-x[1], x[0]))
+    maior = por_funcionario[0][1] if por_funcionario else 1
+    lista = [{"nome": n, "total": t, "largura": round(t / maior * 100)} for n, t in por_funcionario]
+
+    # Gráfico: atendimentos (chamados resolvidos) por mês e por técnico
+    tecnicos = sorted({c["tecnico"] for c in resolvidos})
+    cores = {t: PALETA[i % len(PALETA)] for i, t in enumerate(tecnicos)}
+    contagem = Counter((c["aberto_em"].year, c["aberto_em"].month, c["tecnico"]) for c in resolvidos)
+    maximo = max(contagem.values(), default=1)
+    meses, cortado = meses_do_periodo(ini, fim)
+    grafico = [
+        {
+            "rotulo": f"{MESES[m - 1]}/{str(a)[2:]}",
+            "barras": [
+                {"tecnico": t, "total": contagem[(a, m, t)],
+                 "altura": round(contagem[(a, m, t)] / maximo * 100), "cor": cores[t]}
+                for t in tecnicos
+            ],
+        }
+        for a, m in meses
     ]
 
-    resolvidos = [c for c in dados if c["resolvido_em"]]
-
-    tempo_medio = (
-        sum((c["resolvido_em"] - c["aberto_em"]).days for c in resolvidos) / len(resolvidos)
-        if resolvidos else 0
-    )
-
-    contagem = {}
-    for c in resolvidos:
-        contagem[c["tecnico"]] = contagem.get(c["tecnico"], 0) + 1
-    ordenado = sorted(contagem.items(), key=lambda x: x[1], reverse=True)
-    maior = ordenado[0][1] if ordenado else 1
-    ranking = [
-        {"tecnico": t, "total": n, "largura": round(n / maior * 100)}
-        for t, n in ordenado
-    ]
-
-    por_mes = {}
-    for c in dados:
-        chave = (c["aberto_em"].year, c["aberto_em"].month)
-        por_mes[chave] = por_mes.get(chave, 0) + 1
-    maior_mes = max(por_mes.values()) if por_mes else 1
-    meses = [
-        {"mes": f"{MESES[m - 1]}/{str(a)[2:]}", "total": t, "altura": round(t / maior_mes * 85)}
-        for (a, m), t in sorted(por_mes.items())
-    ]
-
-    kpis = {
-        "em_aberto": len(dados) - len(resolvidos),
-        "resolvidos": len(resolvidos),
-        "tempo_medio_dias": round(tempo_medio, 1),
-        "atendimentos_por_tecnico": round(len(resolvidos) / len(ranking), 1) if ranking else 0,
+    return {
+        "abertos": len(abertos), "resolvidos": len(resolvidos),
+        "tempo_medio": formatar_duracao(tempo_medio),
+        "mes_lista": f"{MESES_COMPLETOS[fim.month - 1].capitalize()}/{fim.year}",
+        "total_abertos_mes": len(abertos_mes), "lista": lista,
+        "tecnicos": tecnicos, "cores": cores, "grafico": grafico, "grafico_cortado": cortado,
     }
 
+
+@app.route("/dashboard")
+@acesso_obrigatorio
+def dashboard():
+    hoje = date.today()
+    padrao_ini, padrao_fim = primeiro_dia_mes(hoje, -5), hoje  # padrão: últimos 6 meses
+
+    ini = parse_data(request.args.get("data_inicio")) or padrao_ini
+    fim = parse_data(request.args.get("data_final")) or padrao_fim
+    erro_filtro = None
+    if ini > fim:
+        erro_filtro = "A data inicial não pode ser maior que a data final."
+        ini, fim = padrao_ini, padrao_fim
+
     return render_template(
-        "public/index.html",
-        kpis=kpis, meses=meses, ranking=ranking,
-        data_inicio=data_inicio, data_final=data_final,
+        "public/dashboardEmpresa.html",
+        dados=montar_dashboard(chamados_exemplo(), ini, fim),
+        data_inicio=ini.isoformat(), data_final=fim.isoformat(), erro_filtro=erro_filtro,
     )
+
+
+# ---------------------------------------------------------------
+# Setores e equipes técnicas (cadastradas pela EMPRESA)
+# ---------------------------------------------------------------
+# Listas em memória (somem ao reiniciar o servidor). Troque por banco depois.
+SETORES = []
+EQUIPES = []
+_proximo_setor = count(1)
+_proximo_equipe = count(1)
+
+MSGS_SETOR_EQUIPE = {
+    "setor_criado": "Setor adicionado.",
+    "equipe_criada": "Equipe adicionada.",
+    "setor_excluido": "Setor excluído.",
+    "equipe_excluida": "Equipe excluída.",
+    "setor_em_uso": "Não é possível excluir: há funcionários neste setor.",
+    "equipe_em_uso": "Não é possível excluir: há técnicos nesta equipe.",
+}
+
+
+def nome_por_id(lista, item_id):
+    return next((i["nome"] for i in lista if i["id"] == item_id), "")
+
+
+def validar_nome(nome, lista):
+    if len(nome) < 2:
+        return "Informe o nome (mínimo 2 letras)."
+    if len(nome) > 50:
+        return "Use no máximo 50 caracteres."
+    if any(i["nome"].lower() == nome.lower() for i in lista):
+        return "Já existe um item com esse nome."
+    return None
+
+
+def tela_equipes(erros=None, digitado=None):
+    msg = request.args.get("msg")
+    return render_template(
+        "public/setoresEquipes.html",
+        setores=sorted(SETORES, key=lambda i: i["nome"].lower()),
+        equipes=sorted(EQUIPES, key=lambda i: i["nome"].lower()),
+        erros=erros or {}, digitado=digitado or {},
+        mensagem=MSGS_SETOR_EQUIPE.get(msg),
+        mensagem_erro=msg in ("setor_em_uso", "equipe_em_uso"),
+    )
+
+
+@app.route("/equipes")
+@login_obrigatorio
+def equipes():
+    return tela_equipes()
+
+
+@app.route("/equipes/setor", methods=["POST"])
+@login_obrigatorio
+def adicionar_setor():
+    nome = " ".join(request.form.get("nome", "").split())
+    erro = validar_nome(nome, SETORES)
+    if erro:
+        return tela_equipes({"setor": erro}, {"setor": nome})
+    SETORES.append({"id": next(_proximo_setor), "nome": nome})
+    return redirect(url_for("equipes", msg="setor_criado"))
+
+
+@app.route("/equipes/equipe", methods=["POST"])
+@login_obrigatorio
+def adicionar_equipe():
+    nome = " ".join(request.form.get("nome", "").split())
+    erro = validar_nome(nome, EQUIPES)
+    if erro:
+        return tela_equipes({"equipe": erro}, {"equipe": nome})
+    EQUIPES.append({"id": next(_proximo_equipe), "nome": nome})
+    return redirect(url_for("equipes", msg="equipe_criada"))
+
+
+@app.route("/equipes/setor/<int:item_id>/excluir", methods=["POST"])
+@login_obrigatorio
+def excluir_setor(item_id):
+    setor = next((i for i in SETORES if i["id"] == item_id), None)
+    if setor is None:
+        abort(404)
+    if any(f["setor_id"] == item_id for f in FUNCIONARIOS):
+        return redirect(url_for("equipes", msg="setor_em_uso"))
+    SETORES.remove(setor)
+    return redirect(url_for("equipes", msg="setor_excluido"))
+
+
+@app.route("/equipes/equipe/<int:item_id>/excluir", methods=["POST"])
+@login_obrigatorio
+def excluir_equipe(item_id):
+    equipe = next((i for i in EQUIPES if i["id"] == item_id), None)
+    if equipe is None:
+        abort(404)
+    if any(f["equipe_id"] == item_id for f in FUNCIONARIOS):
+        return redirect(url_for("equipes", msg="equipe_em_uso"))
+    EQUIPES.remove(equipe)
+    return redirect(url_for("equipes", msg="equipe_excluida"))
 
 
 # ---------------------------------------------------------------
@@ -283,6 +436,7 @@ MENSAGENS = {
 
 
 def form_vazio():
+    # "setor" e "equipe" guardam o ID escolhido no campo de seleção (como texto).
     return {"usuario": "", "tipo": "padrao", "setor": "", "equipe": ""}
 
 
@@ -306,21 +460,28 @@ def validar_funcionario(form, senha, editando_id=None):
     if (editando_id is None or senha) and len(senha) < 6:
         erros["senha"] = "A senha precisa ter pelo menos 6 caracteres."
 
-    if not form["setor"]:
-        erros["setor"] = "Informe o setor."
+    if form["setor"] not in {str(s["id"]) for s in SETORES}:
+        erros["setor"] = "Selecione o setor."
 
     if form["tipo"] not in ("padrao", "tecnico"):
         erros["tipo"] = "Escolha o tipo de funcionário."
-    elif form["tipo"] == "tecnico" and not form["equipe"]:
-        erros["equipe"] = "Informe a equipe do técnico."
+    elif form["tipo"] == "tecnico" and form["equipe"] not in {str(e["id"]) for e in EQUIPES}:
+        erros["equipe"] = "Selecione a equipe do técnico."
 
     return erros
 
 
 def tela_cadastro(form, erros, editando_id=None):
+    # A tabela mostra os NOMES do setor e da equipe (o funcionário guarda só os ids).
+    lista = [
+        {**f, "setor": nome_por_id(SETORES, f["setor_id"]), "equipe": nome_por_id(EQUIPES, f["equipe_id"])}
+        for f in FUNCIONARIOS
+    ]
     return render_template(
         "public/funcionarios.html",
-        form=form, erros=erros, lista=FUNCIONARIOS, editando_id=editando_id,
+        form=form, erros=erros, lista=lista, editando_id=editando_id,
+        setores=sorted(SETORES, key=lambda i: i["nome"].lower()),
+        equipes=sorted(EQUIPES, key=lambda i: i["nome"].lower()),
         mensagem=MENSAGENS.get(request.args.get("msg")),
     )
 
@@ -342,8 +503,8 @@ def funcionarios():
                 "usuario": form["usuario"],
                 "senha_hash": generate_password_hash(senha),  # nunca guarde a senha pura
                 "tipo": form["tipo"],
-                "setor": form["setor"],
-                "equipe": form["equipe"] if form["tipo"] == "tecnico" else "",
+                "setor_id": int(form["setor"]),
+                "equipe_id": int(form["equipe"]) if form["tipo"] == "tecnico" else None,
             })
             return redirect(url_for("funcionarios", msg="criado"))
 
@@ -358,7 +519,12 @@ def editar_funcionario(func_id):
     if func is None:
         abort(404)
 
-    form = {c: func[c] for c in form_vazio()}
+    form = {
+        "usuario": func["usuario"],
+        "tipo": func["tipo"],
+        "setor": str(func["setor_id"]),
+        "equipe": str(func["equipe_id"] or ""),
+    }
     erros = {}
 
     if request.method == "POST":
@@ -369,8 +535,8 @@ def editar_funcionario(func_id):
         if not erros:
             func["usuario"] = form["usuario"]
             func["tipo"] = form["tipo"]
-            func["setor"] = form["setor"]
-            func["equipe"] = form["equipe"] if form["tipo"] == "tecnico" else ""
+            func["setor_id"] = int(form["setor"])
+            func["equipe_id"] = int(form["equipe"]) if form["tipo"] == "tecnico" else None
             if senha:
                 func["senha_hash"] = generate_password_hash(senha)
             return redirect(url_for("funcionarios", msg="editado"))
