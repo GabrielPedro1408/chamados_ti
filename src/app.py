@@ -260,13 +260,6 @@ def login():
 
 
 
-
-@app.route("/tecnico")
-def dashboard_tecnico():
-    return f'Dashboard do técnico (em construção) | <a href="{url_for("logout")}">Sair</a>'
-
-
-
 # Abrir chamado (funcionário padrão)
 
 LIMITE_DESCRICAO = 500
@@ -285,6 +278,10 @@ def salvar_chamado(id_empresa, id_funcionario, descricao):
         "descricao": descricao,
         "status": "aguardando",
         "aberto_em": datetime.now(),
+        "id_prioridade": 1,
+        "id_tecnico": None,
+        "previsao": None,
+        "resolvido_em": None,
     })
 
 
@@ -367,6 +364,62 @@ def excluir_meu_chamado(id_chamado):
     flash("Chamado excluído.")
     return redirect(url_for("meus_chamados"))
 
+
+# ---------------------------------------------------------------
+# Dashboard do técnico
+# ---------------------------------------------------------------
+PRIORIDADES_MOCK = [
+    {"id": 1, "descricao": "Baixa"},
+    {"id": 2, "descricao": "Média"},
+    {"id": 3, "descricao": "Alta"},
+]
+
+
+def nome_da_prioridade(id_prioridade):
+    for prioridade in PRIORIDADES_MOCK:
+        if prioridade["id"] == id_prioridade:
+            return prioridade["descricao"]
+    return "–"
+
+
+def nome_do_usuario(id_usuario):
+    for conta in USUARIOS_MOCK:
+        if conta["id"] == id_usuario:
+            return conta["usuario"]
+    return "–"
+
+
+def listar_chamados_pendentes(id_empresa):
+    pendentes = []
+    for chamado in CHAMADOS_MOCK:
+        if chamado["id_empresa"] == id_empresa and chamado["status"] != "finalizado":
+            pendentes.append(chamado)
+    return pendentes
+
+
+def contar_resolvidos_hoje(id_tecnico):
+    hoje = date.today()
+    total = 0
+    for chamado in CHAMADOS_MOCK:
+        if (chamado["id_tecnico"] == id_tecnico
+                and chamado["status"] == "finalizado"
+                and chamado["resolvido_em"].date() == hoje):
+            total += 1
+    return total
+
+
+@app.route("/tecnico")
+def dashboard_tecnico():
+    pendentes = listar_chamados_pendentes(session.get("id_empresa"))
+    for chamado in pendentes:
+        chamado["funcionario"] = nome_do_usuario(chamado["id_funcionario"])
+        chamado["prioridade"] = nome_da_prioridade(chamado["id_prioridade"])
+
+    resolvidos_hoje = contar_resolvidos_hoje(session.get("id_usuario"))
+    return render_template(
+        "public/dashboard_tecnico.html",
+        chamados=pendentes, resolvidos_hoje=resolvidos_hoje,
+    )
 
 @app.route("/logout")
 def logout():
