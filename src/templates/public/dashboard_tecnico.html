@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chamados pendentes | Deskly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/chamado.css') }}">
+</head>
+<body>
+  <header class="topo topo--portal">
+    <h1>Deskly · Técnico</h1>
+    <a href="{{ url_for('logout') }}">Sair</a>
+  </header>
+
+  <main class="pagina">
+    <h2 class="titulo-pagina">Chamados pendentes</h2>
+
+    {% for mensagem in get_flashed_messages() %}
+      <p class="aviso aviso--ok" role="status">{{ mensagem }}</p>
+    {% endfor %}
+
+    <section class="kpi kpi--pequeno">
+      <h2>Resolvidos por você hoje</h2>
+      <p class="kpi__valor">{{ resolvidos_hoje }}</p>
+    </section>
+
+    <section class="painel">
+      <h2>Fila de atendimento</h2>
+      {% if chamados %}
+        <div class="tabela-rolagem">
+          <table class="tabela">
+            <thead>
+              <tr><th>Funcionário</th><th>Descrição</th><th>Prioridade</th><th>Abertura</th><th>Previsão</th></tr>
+            </thead>
+            <tbody>
+              {% for c in chamados %}
+                <tr>
+                  <td>{{ c.funcionario }}</td>
+                  <td>{{ c.descricao | truncate(60) }}</td>
+                  <td><span class="prioridade prioridade--{{ c.id_prioridade }}">{{ c.prioridade }}</span></td>
+                  <td>{{ c.aberto_em.strftime('%d/%m/%Y %H:%M') }}</td>
+                  <td>{{ c.previsao or '–' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="vazio">Nenhum chamado pendente no momento. Bom trabalho!</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

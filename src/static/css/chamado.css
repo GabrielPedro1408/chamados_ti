@@ -1,0 +1,42 @@
+/* Estilos das telas de chamado do funcionário (usa as variáveis do style.css) */
+
+.topo--portal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.topo--portal a { color: #fff; text-decoration: none; font-weight: 500; }
+.topo--portal a:hover { text-decoration: underline; }
+
+.pagina--estreita { max-width: 760px; }
+
+.form--uma-coluna { grid-template-columns: 1fr; }
+
+.campo textarea {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--texto);
+  min-height: 160px;
+  resize: vertical;
+}
+.contador { align-self: flex-end; font-size: .8rem; color: var(--texto-suave); }
+.cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cabecalho .btn { margin-left: 0; text-decoration: none; }
+.kpi--pequeno { max-width: 280px; }
+
+
+.prioridade {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 500;
+  background: var(--fundo);
+  color: var(--texto-suave);
+}
+.prioridade--1 { background: #e3eefb; color: #1d4f91; }
+.prioridade--2 { background: #fff1cc; color: #7a5200; }
+.prioridade--3 { background: #fde2df; color: #b3261e; }
