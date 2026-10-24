@@ -26,3 +26,17 @@
 .cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cabecalho .btn { margin-left: 0; text-decoration: none; }
 .kpi--pequeno { max-width: 280px; }
+
+
+.prioridade {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 500;
+  background: var(--fundo);
+  color: var(--texto-suave);
+}
+.prioridade--1 { background: #e3eefb; color: #1d4f91; }
+.prioridade--2 { background: #fff1cc; color: #7a5200; }
+.prioridade--3 { background: #fde2df; color: #b3261e; }
