@@ -45,7 +45,11 @@
                 <tr>
                   <td>{{ c.descricao }}</td>
                   <td>{{ c.aberto_em.strftime('%d/%m/%Y %H:%M') }}</td>
-                  <td>{{ 'Em andamento' if c.status == 'em_andamento' else 'Aguardando' }}</td>
+                  <td>
+                    {% if c.status == 'finalizado' %}Finalizado
+                    {% elif c.status == 'em_andamento' %}Em andamento
+                    {% else %}Aguardando{% endif %}
+                  </td>
                   <td>{{ c.posicao ~ 'º' if c.posicao else '–' }}</td>
                     <td>
                     <form method="post" action="{{ url_for('excluir_meu_chamado', id_chamado=c.id) }}"
