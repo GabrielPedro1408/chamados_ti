@@ -224,6 +224,7 @@ def excluir_funcionario(func_id):
 USUARIOS_MOCK = [
     {"id": 1, "usuario": "FELIPE", "senha": "123456", "tipo": "padrao", "id_empresa": 1},
     {"id": 2, "usuario": "RAPHAEL", "senha": "654321", "tipo": "tecnico", "id_empresa": 1},
+    {"id": 3, "usuario": "GABRIEL", "senha": "111111", "tipo": "tecnico", "id_empresa": 1},
 ]
 
 
@@ -282,6 +283,8 @@ def salvar_chamado(id_empresa, id_funcionario, descricao):
         "id_tecnico": None,
         "previsao": None,
         "resolvido_em": None,
+        "comentarios": [],
+        "solucao": None,
     })
 
 
@@ -408,8 +411,7 @@ def contar_resolvidos_hoje(id_tecnico):
     return total
 
 
-@app.route("/tecnico")
-def dashboard_tecnico():
+def tela_tecnico(chamado_aberto=None):
     pendentes = listar_chamados_pendentes(session.get("id_empresa"))
     for chamado in pendentes:
         chamado["funcionario"] = nome_do_usuario(chamado["id_funcionario"])
@@ -419,7 +421,110 @@ def dashboard_tecnico():
     return render_template(
         "public/dashboard_tecnico.html",
         chamados=pendentes, resolvidos_hoje=resolvidos_hoje,
+        aberto=chamado_aberto, prioridades=PRIORIDADES_MOCK,
     )
+
+
+@app.route("/tecnico")
+def dashboard_tecnico():
+    return tela_tecnico()
+
+
+
+# Modal de atendimento (técnico)
+
+def buscar_chamado(id_empresa, id_chamado):
+    for chamado in CHAMADOS_MOCK:
+        if chamado["id"] == id_chamado and chamado["id_empresa"] == id_empresa:
+            return chamado
+    return None
+
+
+def erro_de_atendimento(chamado):
+    # Só o técnico que assumiu o chamado pode alterá-lo.
+    if chamado["id_tecnico"] is None:
+        return "Assuma o chamado antes de fazer alterações."
+    if chamado["id_tecnico"] != session.get("id_usuario"):
+        return "Este chamado já foi assumido por outro técnico."
+    return None
+
+
+@app.route("/tecnico/chamado/<int:id_chamado>")
+def ver_chamado(id_chamado):
+    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
+    if chamado is None or chamado["status"] == "finalizado":
+        abort(404)
+    return tela_tecnico(chamado)
+
+
+@app.route("/tecnico/chamado/<int:id_chamado>/assumir", methods=["POST"])
+def assumir_chamado(id_chamado):
+    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
+    if chamado is None:
+        abort(404)
+
+    if chamado["id_tecnico"] is not None and chamado["id_tecnico"] != session.get("id_usuario"):
+        flash("Este chamado já foi assumido por outro técnico.", "erro")
+        return redirect(url_for("dashboard_tecnico"))
+
+    chamado["id_tecnico"] = session.get("id_usuario")
+    chamado["status"] = "em_andamento"
+    flash("Chamado assumido.")
+    return redirect(url_for("ver_chamado", id_chamado=id_chamado))
+
+
+@app.route("/tecnico/chamado/<int:id_chamado>/atualizar", methods=["POST"])
+def atualizar_chamado(id_chamado):
+    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
+    if chamado is None:
+        abort(404)
+
+    erro = erro_de_atendimento(chamado)
+    if erro:
+        flash(erro, "erro")
+        return redirect(url_for("dashboard_tecnico"))
+
+    id_prioridade = request.form.get("id_prioridade", type=int)
+    if nome_da_prioridade(id_prioridade) != "–":
+        chamado["id_prioridade"] = id_prioridade
+
+    previsao = request.form.get("previsao", "").strip()
+    chamado["previsao"] = previsao[:25] or None
+
+    comentario = request.form.get("comentario", "").strip()
+    if comentario:
+        chamado["comentarios"].append({
+            "autor": nome_do_usuario(session.get("id_usuario")),
+            "texto": comentario,
+            "em": datetime.now(),
+        })
+
+    flash("Alterações salvas.")
+    return redirect(url_for("ver_chamado", id_chamado=id_chamado))
+
+
+@app.route("/tecnico/chamado/<int:id_chamado>/finalizar", methods=["POST"])
+def finalizar_chamado(id_chamado):
+    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
+    if chamado is None:
+        abort(404)
+
+    erro = erro_de_atendimento(chamado)
+    if erro:
+        flash(erro, "erro")
+        return redirect(url_for("dashboard_tecnico"))
+
+    solucao = request.form.get("solucao", "").strip()
+    if not solucao:
+        flash("Descreva a solução antes de finalizar o chamado.", "erro")
+        return redirect(url_for("ver_chamado", id_chamado=id_chamado))
+
+    chamado["solucao"] = solucao
+    chamado["status"] = "finalizado"
+    chamado["resolvido_em"] = datetime.now()
+    flash("Chamado finalizado.")
+    return redirect(url_for("dashboard_tecnico"))
+
 
 @app.route("/logout")
 def logout():
