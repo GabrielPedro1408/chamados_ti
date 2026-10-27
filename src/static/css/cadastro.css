@@ -18,6 +18,8 @@
 }
 .campo [aria-invalid="true"] { border-color: #b3261e; }
 .erro { color: #b3261e; font-size: .8rem; }
+.dica { color: var(--texto-suave); font-size: .8rem; }
+.dica a { color: var(--destaque); font-weight: 500; }
 
 .acoes {
   grid-column: 1 / -1;
@@ -42,6 +44,7 @@
   font-size: .9rem;
 }
 .aviso--ok { background: #dff3ee; color: #0a5d5a; border: 1px solid #a9d9d1; }
+.aviso--erro { background: #fbe9e7; color: #8c1d18; border: 1px solid #f0c2bd; }
 
 .tabela-rolagem { overflow-x: auto; margin-top: 16px; }
 .tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Abrir chamado | Deskly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/chamado.css') }}">
+</head>
+<body>
+  <header class="topo topo--portal">
+    <h1>Deskly</h1>
+    <a href="{{ url_for('sair') }}">Sair</a>
+  </header>
+
+  <main class="pagina pagina--estreita">
+    <h2 class="titulo-pagina">Abrir chamado</h2>
+
+    <form class="painel form form--uma-coluna" method="post" novalidate>
+            <div class="campo">
+        <label for="descricao">Descreva o problema</label>
+        <textarea id="descricao" name="descricao" maxlength="{{ limite }}"
+                  placeholder="Ex.: Meu computador não liga."
+                  {% if erro %}aria-invalid="true"{% endif %}>{{ descricao }}</textarea>
+        {% if erro %}<small class="erro">{{ erro }}</small>{% endif %}
+        <small class="contador" id="contador">0/{{ limite }}</small>
+      </div>
+
+      <div class="acoes">
+        <a class="btn btn--sec" href="{{ url_for('meus_chamados') }}">Cancelar</a>
+        <button type="submit" class="btn">Abrir chamado</button>
+      </div>
+    </form>
+    </main>
+
+  <script>
+    // Contador de caracteres da descrição (ex.: 120/500)
+    const campoDescricao = document.getElementById("descricao");
+    const contador = document.getElementById("contador");
+    const limite = campoDescricao.maxLength;
+
+    function atualizarContador() {
+      contador.textContent = campoDescricao.value.length + "/" + limite;
+    }
+
+    campoDescricao.addEventListener("input", atualizarContador);
+    atualizarContador();
+  </script>
+</body>
+</html>

@@ -22,7 +22,7 @@
         </h2>
 
         {% if mensagem %}
-          <p class="aviso aviso--ok" role="status">{{ mensagem }}</p>
+          <p class="aviso aviso--{{ 'erro' if mensagem_erro else 'ok' }}" role="status">{{ mensagem }}</p>
         {% endif %}
 
         <form class="painel form" method="post" novalidate
@@ -48,19 +48,34 @@
               <option value="padrao" {% if form.tipo == 'padrao' %}selected{% endif %}>Padrão</option>
               <option value="tecnico" {% if form.tipo == 'tecnico' %}selected{% endif %}>Técnico</option>
             </select>
+            {% if erros.tipo %}<small class="erro">{{ erros.tipo }}</small>{% endif %}
           </div>
 
           <div class="campo">
-            <label for="setor">Setor</label>
-            <input type="text" id="setor" name="setor" value="{{ form.setor }}"
-                   {% if erros.setor %}aria-invalid="true"{% endif %}>
+            <label for="setor">Setor (se padrão)</label>
+            <select id="setor" name="setor" {% if erros.setor %}aria-invalid="true"{% endif %}>
+              <option value="">Selecione…</option>
+              {% for s in setores %}
+                <option value="{{ s.id }}" {% if form.setor == s.id|string %}selected{% endif %}>{{ s.nome }}</option>
+              {% endfor %}
+            </select>
+            {% if not setores %}
+              <small class="dica">Nenhum setor cadastrado. <a href="{{ url_for('equipes') }}">Cadastrar setor</a></small>
+            {% endif %}
             {% if erros.setor %}<small class="erro">{{ erros.setor }}</small>{% endif %}
           </div>
 
           <div class="campo">
-            <label for="equipe">Equipe (se técnico)</label>
-            <input type="text" id="equipe" name="equipe" value="{{ form.equipe }}"
-                   {% if erros.equipe %}aria-invalid="true"{% endif %}>
+            <label for="equipe">Equipe (se técnico, opcional)</label>
+            <select id="equipe" name="equipe" {% if erros.equipe %}aria-invalid="true"{% endif %}>
+              <option value="">Sem equipe</option>
+              {% for e in equipes %}
+                <option value="{{ e.id }}" {% if form.equipe == e.id|string %}selected{% endif %}>{{ e.nome }}</option>
+              {% endfor %}
+            </select>
+            {% if not equipes %}
+              <small class="dica">Nenhuma equipe cadastrada. <a href="{{ url_for('equipes') }}">Cadastrar equipe</a></small>
+            {% endif %}
             {% if erros.equipe %}<small class="erro">{{ erros.equipe }}</small>{% endif %}
           </div>
 
@@ -83,7 +98,7 @@
                     <tr {% if f.id == editando_id %}class="linha-ativa"{% endif %}>
                       <td>{{ f.usuario }}</td>
                       <td>{{ 'Técnico' if f.tipo == 'tecnico' else 'Padrão' }}</td>
-                      <td>{{ f.setor }}</td>
+                      <td>{{ f.setor or '–' }}</td>
                       <td>{{ f.equipe or '–' }}</td>
                       <td>
                         <div class="acoes-linha">

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ titulo }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastroEmpresa.css') }}">
+</head>
+<body class="auth">
+  <main class="auth__conteudo">
+    <h1 class="auth__titulo">{{ titulo }}</h1>
+
+    {% if mensagem %}
+      <p class="aviso aviso--ok" role="status">{{ mensagem }}</p>
+    {% endif %}
+    {% if erros.geral %}
+      <p class="aviso aviso--erro" role="alert">{{ erros.geral }}</p>
+    {% endif %}
+
+    <form class="auth__card" method="post" novalidate>
+      {% if cadastro %}
+      <div class="campo">
+        <label for="razao_social">Razão social</label>
+        <input type="text" id="razao_social" name="razao_social" value="{{ razao_social }}"
+               maxlength="120" autocomplete="organization"
+               {% if erros.razao_social %}aria-invalid="true"{% endif %}>
+        {% if erros.razao_social %}<small class="erro">{{ erros.razao_social }}</small>{% endif %}
+      </div>
+      {% endif %}
+      <div class="campo">
+        <label for="cnpj">CNPJ</label>
+        <input type="text" id="cnpj" name="cnpj" value="{{ cnpj }}" inputmode="numeric"
+               maxlength="18" placeholder="00.000.000/0000-00" autocomplete="off"
+               {% if erros.cnpj %}aria-invalid="true"{% endif %}>
+        {% if erros.cnpj %}<small class="erro">{{ erros.cnpj }}</small>{% endif %}
+      </div>
+
+      <div class="campo">
+        <label for="senha">Senha</label>
+        <input type="password" id="senha" name="senha"
+               autocomplete="{{ 'new-password' if cadastro else 'current-password' }}"
+               {% if erros.senha %}aria-invalid="true"{% endif %}>
+        {% if erros.senha %}<small class="erro">{{ erros.senha }}</small>{% endif %}
+      </div>
+
+      <button type="submit" class="btn btn--grande">{{ botao }}</button>
+    </form>
+
+    <p class="auth__links">
+      {% if cadastro %}
+        Já tem cadastro? <a href="{{ url_for('login_empresa') }}">Entrar</a>
+      {% else %}
+        Ainda não tem cadastro? <a href="{{ url_for('cadastro_empresa') }}">Cadastrar empresa</a>
+      {% endif %}
+      <span aria-hidden="true">·</span>
+      <a href="{{ url_for('inicio') }}">Voltar ao início</a>
+    </p>
+  </main>
+
+  <!-- Máscara do CNPJ: só aceita números e formata 00.000.000/0000-00 enquanto digita.
+       Se apagar este bloco, o site continua funcionando (o servidor valida do mesmo jeito). -->
+  <script>
+    const campoCnpj = document.getElementById("cnpj");
+    campoCnpj.addEventListener("input", () => {
+      let v = campoCnpj.value.replace(/\D/g, "").slice(0, 14);
+      v = v.replace(/^(\d{2})(\d)/, "$1.$2");
+      v = v.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+      v = v.replace(/\.(\d{3})(\d)/, ".$1/$2");
+      v = v.replace(/(\d{4})(\d)/, "$1-$2");
+      campoCnpj.value = v;
+    });
+  </script>
+</body>
+</html>

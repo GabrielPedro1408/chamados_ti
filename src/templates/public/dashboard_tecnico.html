@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chamados pendentes | Deskly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/chamado.css') }}">
+</head>
+<body>
+  <header class="topo topo--portal">
+    <h1>Deskly · Técnico</h1>
+    <a href="{{ url_for('sair') }}">Sair</a>
+  </header>
+
+  <main class="pagina">
+    <h2 class="titulo-pagina">Chamados pendentes</h2>
+
+    {% for categoria, mensagem in get_flashed_messages(with_categories=true) %}
+      <p class="aviso {{ 'aviso--erro' if categoria == 'erro' else 'aviso--ok' }}" role="status">{{ mensagem }}</p>
+    {% endfor %}
+
+    <section class="kpi kpi--pequeno">
+      <h2>Resolvidos por você hoje</h2>
+      <p class="kpi__valor">{{ resolvidos_hoje }}</p>
+    </section>
+
+    <section class="painel">
+      <h2>Fila de atendimento</h2>
+      {% if chamados %}
+        <div class="tabela-rolagem">
+          <table class="tabela">
+            <thead>
+              <tr><th>Funcionário</th><th>Descrição</th><th>Prioridade</th><th>Abertura</th><th>Previsão</th></tr>
+            </thead>
+            <tbody>
+              {% for c in chamados %}
+                <tr class="linha-clicavel" data-url="{{ url_for('ver_chamado', id_chamado=c.id) }}">
+                  <td>{{ c.funcionario }}</td>
+                  <td>{{ c.descricao | truncate(60) }}</td>
+                  <td><span class="prioridade prioridade--{{ c.id_prioridade }}">{{ c.prioridade }}</span></td>
+                  <td>{{ c.aberto_em.strftime('%d/%m/%Y %H:%M') }}</td>
+                  <td>{{ c.previsao or '–' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="vazio">Nenhum chamado pendente no momento. Bom trabalho!</p>
+      {% endif %}
+    </section>
+  </main>
+
+  {% if aberto %}
+    {% set e_meu = aberto.id_tecnico == session.id_tecnico %}
+    <dialog class="modal" id="modal-chamado" aria-labelledby="modal-titulo">
+      <div class="modal__topo">
+        <h2 id="modal-titulo">Chamado #{{ aberto.id }}</h2>
+        <a class="modal__fechar" href="{{ url_for('dashboard_tecnico') }}" aria-label="Fechar">&times;</a>
+      </div>
+
+      <dl class="modal__dados">
+        <dt>Funcionário</dt><dd>{{ aberto.funcionario }}</dd>
+        <dt>Aberto em</dt><dd>{{ aberto.aberto_em.strftime('%d/%m/%Y %H:%M') }}</dd>
+        <dt>Status</dt><dd>{{ 'Em andamento' if aberto.status == 'em_andamento' else 'Aguardando' }}</dd>
+        <dt>Descrição</dt><dd>{{ aberto.descricao }}</dd>
+      </dl>
+
+      {% if aberto.comentarios %}
+        <ul class="comentarios">
+          {% for com in aberto.comentarios %}
+            <li><strong>{{ com.autor }}</strong> · {{ com.em.strftime('%d/%m %H:%M') }}<br>{{ com.texto }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if aberto.id_tecnico is none %}
+        <form method="post" action="{{ url_for('assumir_chamado', id_chamado=aberto.id) }}">
+          <button type="submit" class="btn">Assumir atendimento</button>
+        </form>
+      {% elif not e_meu %}
+        <p class="aviso aviso--erro">Este chamado já foi assumido por outro técnico.</p>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('atualizar_chamado', id_chamado=aberto.id) }}">
+        <fieldset {% if not e_meu %}disabled{% endif %}>
+          <div class="campo">
+            <label for="id_prioridade">Prioridade</label>
+            <select id="id_prioridade" name="id_prioridade">
+              {% for p in prioridades %}
+                <option value="{{ p.id }}" {% if p.id == aberto.id_prioridade %}selected{% endif %}>{{ p.descricao }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="campo">
+            <label for="previsao">Previsão de resolução</label>
+            <input type="text" id="previsao" name="previsao" maxlength="25"
+                   value="{{ aberto.previsao or '' }}" placeholder="Ex.: Hoje até 17h">
+          </div>
+          <div class="campo">
+            <label for="comentario">Adicionar comentário</label>
+            <textarea id="comentario" name="comentario" rows="2"></textarea>
+          </div>
+          <button type="submit" class="btn btn--sec">Salvar alterações</button>
+        </fieldset>
+      </form>
+
+      <form method="post" action="{{ url_for('finalizar_chamado', id_chamado=aberto.id) }}">
+        <fieldset {% if not e_meu %}disabled{% endif %}>
+          <div class="campo">
+            <label for="solucao">Solução aplicada</label>
+            <textarea id="solucao" name="solucao" rows="3"></textarea>
+          </div>
+          <button type="submit" class="btn">Registrar solução e finalizar</button>
+        </fieldset>
+      </form>
+    </dialog>
+  {% endif %}
+
+  <script>
+    document.querySelectorAll(".linha-clicavel").forEach(function (linha) {
+      linha.addEventListener("click", function () {
+        window.location.href = linha.dataset.url;
+      });
+    });
+
+   
+    const modal = document.getElementById("modal-chamado");
+    if (modal) {
+      modal.showModal();
+      modal.addEventListener("cancel", function () {
+        window.location.href = "{{ url_for('dashboard_tecnico') }}";
+      });
+    }
+  </script>
+</body>
+</html>

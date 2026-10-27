@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cadastro.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/menu.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboardEmpresa.css') }}">
+</head>
+<body>
+  <div class="layout">
+    {% include "partials/menu.html" %}
+
+    <div class="conteudo">
+      <main class="pagina">
+        <h2 class="titulo-pagina">Dashboard</h2>
+
+        {% if erro_filtro %}
+          <p class="aviso aviso--erro" role="alert">{{ erro_filtro }}</p>
+        {% endif %}
+
+        <!-- Filtragem -->
+        <form class="filtro" method="get" action="{{ url_for('dashboard') }}">
+          <strong class="filtro__titulo">Filtragem:</strong>
+          <label>Data início
+            <input type="date" name="data_inicio" value="{{ data_inicio }}">
+          </label>
+          <label>Data final
+            <input type="date" name="data_final" value="{{ data_final }}">
+          </label>
+          <button type="submit" class="btn">Filtrar</button>
+        </form>
+
+        <section class="cards2">
+          <!-- Card 1: chamados e tempo médio -->
+          <article class="painel">
+            <h2>Chamados no período</h2>
+            <dl class="resumo">
+              <div><dt>Abertos</dt><dd>{{ dados.abertos }}</dd></div>
+              <div><dt>Resolvidos</dt><dd>{{ dados.resolvidos }}</dd></div>
+              <div><dt>Tempo médio de atendimento</dt><dd>{{ dados.tempo_medio }}</dd></div>
+            </dl>
+          </article>
+
+          <!-- Card 2: abertos por funcionário no mês -->
+          <article class="painel">
+            <h2>Chamados abertos por funcionário</h2>
+            <p class="sub">{{ dados.mes_lista }} · {{ dados.total_abertos_mes }} em aberto</p>
+            {% if dados.lista %}
+              <ol class="ranking lista-func">
+                {% for f in dados.lista %}
+                  <li>
+                    <div class="ranking__linha"><span>{{ f.nome }}</span><strong>{{ f.total }}</strong></div>
+                    <div class="ranking__trilho">
+                      <div class="ranking__preenchimento" style="width: {{ f.largura }}%"></div>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ol>
+            {% else %}
+              <p class="vazio">Nenhum chamado em aberto neste mês.</p>
+            {% endif %}
+          </article>
+        </section>
+
+        <!-- Gráfico: atendimentos mensais por técnico -->
+        <section class="painel">
+          <h2>Atendimentos mensais por técnico</h2>
+          <p class="sub">Chamados resolvidos, agrupados pelo mês em que foram abertos.</p>
+
+          {% if dados.tecnicos %}
+            <div class="grafico" role="group" aria-label="Atendimentos mensais por técnico">
+              {% for m in dados.grafico %}
+                <div class="grafico__mes">
+                  <div class="grafico__barras">
+                    {% for b in m.barras %}
+                      <div class="grafico__col" title="{{ b.tecnico }}: {{ b.total }} em {{ m.rotulo }}">
+                        <span class="grafico__valor">{{ b.total }}</span>
+                        <div class="grafico__barra" style="--h: {{ b.altura }}; --cor: {{ b.cor }}"
+                             role="img" aria-label="{{ b.tecnico }}: {{ b.total }} atendimentos em {{ m.rotulo }}"></div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                  <span class="grafico__rotulo">{{ m.rotulo }}</span>
+                </div>
+              {% endfor %}
+            </div>
+            <ul class="legenda-cores">
+              {% for t in dados.tecnicos %}
+                <li><span class="legenda-cores__cor" style="background: {{ dados.cores[t] }}"></span>{{ t }}</li>
+              {% endfor %}
+            </ul>
+            {% if dados.grafico_cortado %}
+              <p class="nota">Mostrando os últimos 12 meses do período.</p>
+            {% endif %}
+          {% else %}
+            <p class="vazio">Nenhum atendimento no período selecionado.</p>
+          {% endif %}
+        </section>
+
+        <p class="nota">Dados de exemplo: os chamados ainda não são registrados no sistema.</p>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

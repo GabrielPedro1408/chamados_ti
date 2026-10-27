@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chamados de TI – Início</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/inicio.css') }}">
+</head>
+<body class="inicio">
+  <main class="inicio__conteudo">
+    <h1 class="inicio__titulo">Chamados de TI</h1>
+    <p class="inicio__sub">Escolha como você quer entrar</p>
+
+    <section class="opcoes">
+      <!-- Funcionário -->
+      <article class="opcao">
+        <svg class="opcao__icone" viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="22" r="11"/>
+          <path d="M10 56c0-12 10-20 22-20s22 8 22 20z"/>
+        </svg>
+        <h2>Funcionário</h2>
+        <a class="btn btn--grande" href="{{ url_for('login_funcionario') }}">Entrar</a>
+        <p class="opcao__dica">O acesso é criado pela sua empresa.</p>
+      </article>
+
+      <!-- Empresa -->
+      <article class="opcao">
+        <svg class="opcao__icone" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M10 56V10h30v14h14v32z"/>
+          <g class="janelas">
+            <rect x="17" y="17" width="6" height="6"/><rect x="27" y="17" width="6" height="6"/>
+            <rect x="17" y="29" width="6" height="6"/><rect x="27" y="29" width="6" height="6"/>
+            <rect x="44" y="30" width="5" height="6"/><rect x="44" y="42" width="5" height="6"/>
+          </g>
+        </svg>
+        <h2>Empresa</h2>
+        <a class="btn btn--grande" href="{{ url_for('login_empresa') }}">Entrar como empresa</a>
+        <p class="opcao__dica">
+          Ainda não tem cadastro?
+          <a class="btn btn--sec btn--pequeno" href="{{ url_for('cadastro_empresa') }}">Cadastrar empresa</a>
+        </p>
+      </article>
+    </section>
+
+  </main>
+</body>
+</html>
