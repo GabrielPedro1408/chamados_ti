@@ -1,0 +1,51 @@
+/* Telas de login e cadastro da empresa (usa as variáveis do style.css) */
+
+.auth {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+}
+.auth__conteudo { width: 100%; max-width: 460px; display: grid; gap: 18px; }
+.auth__titulo {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.auth__card {
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 16px;
+  padding: 32px 36px;
+  display: grid;
+  gap: 22px;
+}
+.campo { display: flex; flex-direction: column; gap: 6px; }
+.campo label { font-size: .85rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.campo input {
+  font: inherit;
+  padding: 11px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--texto);
+}
+.campo [aria-invalid="true"] { border-color: #b3261e; }
+.erro { color: #b3261e; font-size: .8rem; }
+
+.btn--grande {
+  margin: 8px auto 0;
+  min-width: 55%;
+  padding: 12px 24px;
+  font-size: 1rem;
+}
+
+.aviso { margin: 0; padding: 12px 16px; border-radius: 8px; font-size: .9rem; }
+.aviso--ok { background: #dff3ee; color: #0a5d5a; border: 1px solid #a9d9d1; }
+.aviso--erro { background: #fbe9e7; color: #8c1d18; border: 1px solid #f0c2bd; }
+
+.auth__links { margin: 0; text-align: center; font-size: .85rem; color: var(--texto-suave); }
+.auth__links a { color: var(--destaque); font-weight: 500; }

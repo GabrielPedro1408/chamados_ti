@@ -14,12 +14,9 @@
   top: 0;
   height: 100vh;
 }
-.menu__marca {
-  margin: 0 10px 24px;
-  color: #fff;
-  font-weight: 600;
-  font-size: 1.05rem;
-}
+.menu__topo { margin: 0 10px 24px; }
+.menu__marca { margin: 0; color: #fff; font-weight: 600; font-size: 1.05rem; }
+.menu__empresa { margin: 4px 0 0; color: #9fb0bd; font-size: .8rem; overflow-wrap: anywhere; }
 .menu nav { display: grid; gap: 4px; }
 .menu a {
   display: block;
@@ -41,6 +38,6 @@
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; }
   .menu { position: static; height: auto; padding: 14px; }
-  .menu__marca { margin-bottom: 12px; }
+  .menu__topo { margin-bottom: 12px; }
   .menu nav { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; }
 }
