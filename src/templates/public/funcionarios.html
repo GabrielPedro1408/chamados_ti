@@ -52,7 +52,7 @@
           </div>
 
           <div class="campo">
-            <label for="setor">Setor</label>
+            <label for="setor">Setor (se padrão)</label>
             <select id="setor" name="setor" {% if erros.setor %}aria-invalid="true"{% endif %}>
               <option value="">Selecione…</option>
               {% for s in setores %}
@@ -66,9 +66,9 @@
           </div>
 
           <div class="campo">
-            <label for="equipe">Equipe (se técnico)</label>
+            <label for="equipe">Equipe (se técnico, opcional)</label>
             <select id="equipe" name="equipe" {% if erros.equipe %}aria-invalid="true"{% endif %}>
-              <option value="">Selecione…</option>
+              <option value="">Sem equipe</option>
               {% for e in equipes %}
                 <option value="{{ e.id }}" {% if form.equipe == e.id|string %}selected{% endif %}>{{ e.nome }}</option>
               {% endfor %}

@@ -14,7 +14,7 @@
 <body>
   <header class="topo topo--portal">
     <h1>Deskly · Técnico</h1>
-    <a href="{{ url_for('logout') }}">Sair</a>
+    <a href="{{ url_for('sair') }}">Sair</a>
   </header>
 
   <main class="pagina">
@@ -57,7 +57,7 @@
   </main>
 
   {% if aberto %}
-    {% set e_meu = aberto.id_tecnico == session.id_usuario %}
+    {% set e_meu = aberto.id_tecnico == session.id_tecnico %}
     <dialog class="modal" id="modal-chamado" aria-labelledby="modal-titulo">
       <div class="modal__topo">
         <h2 id="modal-titulo">Chamado #{{ aberto.id }}</h2>

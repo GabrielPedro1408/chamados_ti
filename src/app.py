@@ -1,16 +1,17 @@
-import random
 import re
 from collections import Counter
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime
 from functools import wraps
-from itertools import count
 
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from src.db import consultar, consultar_um, executar, fechar_conexao, transacao
+
 app = Flask(__name__)
 # Chave usada para assinar a sessão de login. Troque por um valor secreto seu.
 app.secret_key = "troque-esta-chave-secreta"
+app.teardown_appcontext(fechar_conexao)
 
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
          "jul", "ago", "set", "out", "nov", "dez"]
@@ -19,17 +20,6 @@ MESES_COMPLETOS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 # Cores dos técnicos no gráfico (se houver mais técnicos que cores, elas se repetem).
 PALETA = ["#0f7c78", "#d97706", "#3b6fb6", "#b3446c", "#6b8e23", "#7a5195"]
 
-# ---------------------------------------------------------------
-# Dados de exemplo dos chamados
-# ---------------------------------------------------------------
-# Ainda não existe cadastro de chamados no sistema: estes são FICTÍCIOS, só para
-# o dashboard ter o que mostrar. Quando houver banco, troque esta função por uma
-# consulta que devolva uma lista de dicionários com as mesmas chaves:
-#   id, tecnico, funcionario, aberto_em (datetime), resolvido_em (datetime ou None)
-TECNICOS_EXEMPLO = ["Ana Souza", "Bruno Lima", "Carla Dias", "Diego Rocha"]
-FUNCIONARIOS_EXEMPLO = ["Fernanda Alves", "Gustavo Reis", "Helena Costa",
-                        "Igor Martins", "Júlia Pires", "Lucas Nunes"]
-
 
 def primeiro_dia_mes(d, deslocamento=0):
     """Primeiro dia do mês de `d`, andando `deslocamento` meses (pode ser negativo)."""
@@ -37,37 +27,16 @@ def primeiro_dia_mes(d, deslocamento=0):
     return date(total // 12, total % 12 + 1, 1)
 
 
-def chamados_exemplo():
-    rnd = random.Random(42)  # semente fixa: os números não mudam a cada atualização
-    hoje = date.today()
-    inicio = primeiro_dia_mes(hoje, -5)
-    dias = (hoje - inicio).days + 1
-    agora = datetime.now()
-
-    chamados = []
-    for i in range(1, 221):
-        dia = inicio + timedelta(days=rnd.randrange(dias))
-        aberto_em = datetime.combine(dia, time(rnd.randint(8, 17), rnd.choice([0, 15, 30, 45])))
-        foi_resolvido = rnd.random() < 0.75
-        horas = rnd.uniform(1, 80)
-        tecnico = rnd.choice(TECNICOS_EXEMPLO)
-        funcionario = rnd.choice(FUNCIONARIOS_EXEMPLO)
-
-        resolvido_em = aberto_em + timedelta(hours=horas) if foi_resolvido else None
-        if resolvido_em and resolvido_em > agora:  # ainda não deu tempo de resolver
-            resolvido_em = None
-        chamados.append({
-            "id": i, "tecnico": tecnico, "funcionario": funcionario,
-            "aberto_em": aberto_em, "resolvido_em": resolvido_em,
-        })
-    return chamados
-
-
 def parse_data(valor):
     try:
         return datetime.strptime(valor, "%Y-%m-%d").date() if valor else None
     except ValueError:
         return None
+
+
+def normalizar_usuario(texto):
+    """Regra do banco: NomeUsuario em MAIÚSCULAS e sem espaços."""
+    return re.sub(r"\s", "", texto).upper()
 
 
 # ---------------------------------------------------------------
@@ -80,35 +49,83 @@ def inicio():
 
 # Regra de negócio: a EMPRESA se cadastra sozinha; o FUNCIONÁRIO não tem
 # autocadastro, ele é criado pela empresa em /funcionarios.
+# O mesmo login serve para funcionário padrão e técnico: o tipo do usuário
+# decide qual tela ele vê depois de entrar.
+def autenticar(usuario, senha):
+    conta = consultar_um(
+        """
+        SELECT u.IdUsuario AS id, u.IdEmpresa AS id_empresa, u.NomeUsuario AS usuario,
+               u.SenhaHash AS senha_hash,
+               fp.IdFuncionario AS id_funcionario, ft.IdTecnico AS id_tecnico
+          FROM usuario u
+          LEFT JOIN funcionariopadrao fp ON fp.IdUsuario = u.IdUsuario
+          LEFT JOIN funcionariotecnico ft ON ft.IdUsuario = u.IdUsuario
+         WHERE u.NomeUsuario = %s
+        """,
+        (usuario,),
+    )
+    if conta and check_password_hash(conta["senha_hash"], senha):
+        return conta
+    return None
+
+
 @app.route("/login/funcionario", methods=["GET", "POST"])
 def login_funcionario():
     usuario_digitado, erros = "", {}
 
     if request.method == "POST":
-        usuario_digitado = request.form.get("usuario", "").strip()
+        usuario_digitado = normalizar_usuario(request.form.get("usuario", ""))
         senha = request.form.get("senha", "")
+        conta = autenticar(usuario_digitado, senha)
 
-        if " " in usuario_digitado:
-            erros["usuario"] = "O nome de usuário não pode ter espaços."
-        else:
-            func = next(
-                (f for f in FUNCIONARIOS if f["usuario"].lower() == usuario_digitado.lower()),
-                None,
-            )
-            if func and check_password_hash(func["senha_hash"], senha):
-                session.clear()
-                session["funcionario_id"] = func["id"]
-                return redirect(url_for("dashboard"))
+        if conta is None:
             erros["geral"] = "Usuário ou senha inválidos."
+        else:
+            session.clear()
+            session["id_usuario"] = conta["id"]
+            session["id_empresa"] = conta["id_empresa"]
+            session["nome"] = conta["usuario"]
+
+            if conta["id_tecnico"]:
+                session["tipo"] = "tecnico"
+                session["id_tecnico"] = conta["id_tecnico"]
+                return redirect(url_for("dashboard_tecnico"))
+            session["tipo"] = "padrao"
+            session["id_funcionario"] = conta["id_funcionario"]
+            return redirect(url_for("meus_chamados"))
 
     return render_template("public/loginFuncionario.html", usuario=usuario_digitado, erros=erros)
+
+
+def portal_obrigatorio(tipo):
+    """Só deixa entrar quem fez login como FUNCIONÁRIO do tipo indicado ('padrao' ou 'tecnico')."""
+    sql = {
+        "padrao": "SELECT 1 FROM funcionariopadrao WHERE IdFuncionario = %s AND IdUsuario = %s",
+        "tecnico": "SELECT 1 FROM funcionariotecnico WHERE IdTecnico = %s AND IdUsuario = %s",
+    }[tipo]
+    chave = "id_funcionario" if tipo == "padrao" else "id_tecnico"
+
+    def decorador(view):
+        @wraps(view)
+        def protegida(*args, **kwargs):
+            if session.get("tipo") != tipo:
+                return redirect(url_for("login_funcionario"))
+            # Confere no banco: o usuário pode ter sido excluído ou mudado de tipo.
+            if not consultar_um(sql, (session.get(chave), session.get("id_usuario"))):
+                session.clear()
+                return redirect(url_for("login_funcionario"))
+            return view(*args, **kwargs)
+        return protegida
+    return decorador
 
 
 # ---------------------------------------------------------------
 # Empresa: cadastro, login e logout
 # ---------------------------------------------------------------
-# Lista em memória (some ao reiniciar o servidor). Troque por banco depois.
-EMPRESAS = []
+SQL_EMPRESA = """
+    SELECT IdEmpresa AS id, RazaoSocial AS razao_social, Cnpj AS cnpj, SenhaHash AS senha_hash
+      FROM empresa
+"""
 
 
 def so_digitos(texto):
@@ -135,29 +152,23 @@ def cnpj_valido(d):
 
 
 def buscar_empresa(cnpj):
-    return next((e for e in EMPRESAS if e["cnpj"] == cnpj), None)
+    return consultar_um(SQL_EMPRESA + " WHERE Cnpj = %s", (cnpj,))
+
+
+def empresa_logada():
+    """Empresa que fez login (ou None)."""
+    if "empresa_id" not in session:
+        return None
+    return consultar_um(SQL_EMPRESA + " WHERE IdEmpresa = %s", (session["empresa_id"],))
 
 
 def login_obrigatorio(view):
     """Só deixa entrar quem fez login como EMPRESA."""
     @wraps(view)
     def protegida(*args, **kwargs):
-        if not buscar_empresa(session.get("empresa_cnpj", "")):
+        if not empresa_logada():
             session.clear()
             return redirect(url_for("login_empresa"))
-        return view(*args, **kwargs)
-    return protegida
-
-
-def acesso_obrigatorio(view):
-    """Deixa entrar quem fez login como EMPRESA ou como FUNCIONÁRIO."""
-    @wraps(view)
-    def protegida(*args, **kwargs):
-        empresa_ok = buscar_empresa(session.get("empresa_cnpj", ""))
-        funcionario_ok = buscar_funcionario(session.get("funcionario_id", -1))
-        if not (empresa_ok or funcionario_ok):
-            session.clear()
-            return redirect(url_for("inicio"))
         return view(*args, **kwargs)
     return protegida
 
@@ -165,7 +176,7 @@ def acesso_obrigatorio(view):
 @app.context_processor
 def dados_do_menu():
     """Variáveis disponíveis em todos os templates (usadas no menu lateral)."""
-    empresa = buscar_empresa(session.get("empresa_cnpj", ""))
+    empresa = empresa_logada()
     return {"empresa_atual": empresa, "e_empresa": empresa is not None}
 
 
@@ -194,11 +205,10 @@ def cadastro_empresa():
             erros["senha"] = "A senha precisa ter pelo menos 6 caracteres."
 
         if not erros:
-            EMPRESAS.append({
-                "razao_social": razao,
-                "cnpj": cnpj,
-                "senha_hash": generate_password_hash(senha),  # nunca guarde a senha pura
-            })
+            executar(
+                "INSERT INTO empresa (RazaoSocial, Cnpj, SenhaHash) VALUES (%s, %s, %s)",
+                (razao, cnpj, generate_password_hash(senha)),  # nunca guarde a senha pura
+            )
             return redirect(url_for("login_empresa", msg="cadastrada"))
 
     return render_template(
@@ -218,7 +228,7 @@ def login_empresa():
 
         if empresa and check_password_hash(empresa["senha_hash"], senha):
             session.clear()
-            session["empresa_cnpj"] = empresa["cnpj"]
+            session["empresa_id"] = empresa["id"]
             return redirect(url_for("dashboard"))
         erros["geral"] = "CNPJ ou senha inválidos."
 
@@ -238,6 +248,24 @@ def sair():
 # ---------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------
+def chamados_da_empresa(id_empresa, ini, fim):
+    """Chamados ABERTOS no período, com as chaves que o montar_dashboard usa:
+    id, tecnico, funcionario, aberto_em (datetime), resolvido_em (datetime ou None)."""
+    return consultar(
+        """
+        SELECT c.IdChamado AS id, ut.NomeUsuario AS tecnico, uf.NomeUsuario AS funcionario,
+               c.DataHoraAbertura AS aberto_em, c.DataHoraFechamento AS resolvido_em
+          FROM chamado c
+          JOIN funcionariopadrao fp ON fp.IdFuncionario = c.IdFuncionario
+          JOIN usuario uf ON uf.IdUsuario = fp.IdUsuario
+          LEFT JOIN funcionariotecnico ft ON ft.IdTecnico = c.IdTecnico
+          LEFT JOIN usuario ut ON ut.IdUsuario = ft.IdUsuario
+         WHERE c.IdEmpresa = %s AND DATE(c.DataHoraAbertura) BETWEEN %s AND %s
+        """,
+        (id_empresa, ini, fim),
+    )
+
+
 def formatar_duracao(horas):
     if horas is None:
         return "–"
@@ -305,7 +333,7 @@ def montar_dashboard(chamados, ini, fim):
 
 
 @app.route("/dashboard")
-@acesso_obrigatorio
+@login_obrigatorio
 def dashboard():
     hoje = date.today()
     padrao_ini, padrao_fim = primeiro_dia_mes(hoje, -5), hoje  # padrão: últimos 6 meses
@@ -317,9 +345,10 @@ def dashboard():
         erro_filtro = "A data inicial não pode ser maior que a data final."
         ini, fim = padrao_ini, padrao_fim
 
+    chamados = chamados_da_empresa(session["empresa_id"], ini, fim)
     return render_template(
         "public/dashboardEmpresa.html",
-        dados=montar_dashboard(chamados_exemplo(), ini, fim),
+        dados=montar_dashboard(chamados, ini, fim),
         data_inicio=ini.isoformat(), data_final=fim.isoformat(), erro_filtro=erro_filtro,
     )
 
@@ -327,12 +356,6 @@ def dashboard():
 # ---------------------------------------------------------------
 # Setores e equipes técnicas (cadastradas pela EMPRESA)
 # ---------------------------------------------------------------
-# Listas em memória (somem ao reiniciar o servidor). Troque por banco depois.
-SETORES = []
-EQUIPES = []
-_proximo_setor = count(1)
-_proximo_equipe = count(1)
-
 MSGS_SETOR_EQUIPE = {
     "setor_criado": "Setor adicionado.",
     "equipe_criada": "Equipe adicionada.",
@@ -343,8 +366,18 @@ MSGS_SETOR_EQUIPE = {
 }
 
 
-def nome_por_id(lista, item_id):
-    return next((i["nome"] for i in lista if i["id"] == item_id), "")
+def listar_setores(id_empresa):
+    return consultar(
+        "SELECT IdSetor AS id, NomeSetor AS nome FROM setor WHERE IdEmpresa = %s ORDER BY NomeSetor",
+        (id_empresa,),
+    )
+
+
+def listar_equipes(id_empresa):
+    return consultar(
+        "SELECT IdEquipe AS id, NomeEquipe AS nome FROM equipetecnica WHERE IdEmpresa = %s ORDER BY NomeEquipe",
+        (id_empresa,),
+    )
 
 
 def validar_nome(nome, lista):
@@ -361,8 +394,8 @@ def tela_equipes(erros=None, digitado=None):
     msg = request.args.get("msg")
     return render_template(
         "public/setoresEquipes.html",
-        setores=sorted(SETORES, key=lambda i: i["nome"].lower()),
-        equipes=sorted(EQUIPES, key=lambda i: i["nome"].lower()),
+        setores=listar_setores(session["empresa_id"]),
+        equipes=listar_equipes(session["empresa_id"]),
         erros=erros or {}, digitado=digitado or {},
         mensagem=MSGS_SETOR_EQUIPE.get(msg),
         mensagem_erro=msg in ("setor_em_uso", "equipe_em_uso"),
@@ -379,10 +412,10 @@ def equipes():
 @login_obrigatorio
 def adicionar_setor():
     nome = " ".join(request.form.get("nome", "").split())
-    erro = validar_nome(nome, SETORES)
+    erro = validar_nome(nome, listar_setores(session["empresa_id"]))
     if erro:
         return tela_equipes({"setor": erro}, {"setor": nome})
-    SETORES.append({"id": next(_proximo_setor), "nome": nome})
+    executar("INSERT INTO setor (IdEmpresa, NomeSetor) VALUES (%s, %s)", (session["empresa_id"], nome))
     return redirect(url_for("equipes", msg="setor_criado"))
 
 
@@ -390,49 +423,61 @@ def adicionar_setor():
 @login_obrigatorio
 def adicionar_equipe():
     nome = " ".join(request.form.get("nome", "").split())
-    erro = validar_nome(nome, EQUIPES)
+    erro = validar_nome(nome, listar_equipes(session["empresa_id"]))
     if erro:
         return tela_equipes({"equipe": erro}, {"equipe": nome})
-    EQUIPES.append({"id": next(_proximo_equipe), "nome": nome})
+    executar("INSERT INTO equipetecnica (IdEmpresa, NomeEquipe) VALUES (%s, %s)", (session["empresa_id"], nome))
     return redirect(url_for("equipes", msg="equipe_criada"))
 
 
 @app.route("/equipes/setor/<int:item_id>/excluir", methods=["POST"])
 @login_obrigatorio
 def excluir_setor(item_id):
-    setor = next((i for i in SETORES if i["id"] == item_id), None)
-    if setor is None:
+    if not consultar_um("SELECT 1 FROM setor WHERE IdSetor = %s AND IdEmpresa = %s",
+                        (item_id, session["empresa_id"])):
         abort(404)
-    if any(f["setor_id"] == item_id for f in FUNCIONARIOS):
+    if consultar_um("SELECT 1 FROM funcionariopadrao WHERE IdSetor = %s LIMIT 1", (item_id,)):
         return redirect(url_for("equipes", msg="setor_em_uso"))
-    SETORES.remove(setor)
+    executar("DELETE FROM setor WHERE IdSetor = %s", (item_id,))
     return redirect(url_for("equipes", msg="setor_excluido"))
 
 
 @app.route("/equipes/equipe/<int:item_id>/excluir", methods=["POST"])
 @login_obrigatorio
 def excluir_equipe(item_id):
-    equipe = next((i for i in EQUIPES if i["id"] == item_id), None)
-    if equipe is None:
+    if not consultar_um("SELECT 1 FROM equipetecnica WHERE IdEquipe = %s AND IdEmpresa = %s",
+                        (item_id, session["empresa_id"])):
         abort(404)
-    if any(f["equipe_id"] == item_id for f in FUNCIONARIOS):
+    if consultar_um("SELECT 1 FROM funcionariotecnico WHERE IdEquipe = %s LIMIT 1", (item_id,)):
         return redirect(url_for("equipes", msg="equipe_em_uso"))
-    EQUIPES.remove(equipe)
+    executar("DELETE FROM equipetecnica WHERE IdEquipe = %s", (item_id,))
     return redirect(url_for("equipes", msg="equipe_excluida"))
 
 
 # ---------------------------------------------------------------
 # Cadastro de funcionários (CRUD)
 # ---------------------------------------------------------------
-# Lista em memória (some ao reiniciar o servidor). Troque por banco depois.
-FUNCIONARIOS = []
-_proximo_id = count(1)
-
+# No banco, cada funcionário é um `usuario` mais uma linha em
+# `funcionariopadrao` (com setor) OU em `funcionariotecnico` (com equipe opcional).
 MENSAGENS = {
     "criado": "Funcionário cadastrado com sucesso.",
     "editado": "Funcionário atualizado com sucesso.",
     "excluido": "Funcionário excluído.",
+    "em_uso": "Não é possível excluir: há chamados ligados a este funcionário.",
 }
+
+SQL_FUNCIONARIOS = """
+    SELECT u.IdUsuario AS id, u.NomeUsuario AS usuario,
+           IF(ft.IdTecnico IS NULL, 'padrao', 'tecnico') AS tipo,
+           fp.IdSetor AS setor_id, ft.IdEquipe AS equipe_id,
+           s.NomeSetor AS setor, e.NomeEquipe AS equipe
+      FROM usuario u
+      LEFT JOIN funcionariopadrao fp ON fp.IdUsuario = u.IdUsuario
+      LEFT JOIN funcionariotecnico ft ON ft.IdUsuario = u.IdUsuario
+      LEFT JOIN setor s ON s.IdSetor = fp.IdSetor
+      LEFT JOIN equipetecnica e ON e.IdEquipe = ft.IdEquipe
+     WHERE u.IdEmpresa = %s
+"""
 
 
 def form_vazio():
@@ -441,10 +486,24 @@ def form_vazio():
 
 
 def buscar_funcionario(func_id):
-    return next((f for f in FUNCIONARIOS if f["id"] == func_id), None)
+    return consultar_um(SQL_FUNCIONARIOS + " AND u.IdUsuario = %s", (session["empresa_id"], func_id))
 
 
-def validar_funcionario(form, senha, editando_id=None):
+def tem_chamados(func_id):
+    """True se o usuário abriu ou atendeu algum chamado."""
+    return consultar_um(
+        """
+        SELECT 1 FROM chamado c
+          LEFT JOIN funcionariopadrao fp ON fp.IdFuncionario = c.IdFuncionario
+          LEFT JOIN funcionariotecnico ft ON ft.IdTecnico = c.IdTecnico
+         WHERE fp.IdUsuario = %s OR ft.IdUsuario = %s
+         LIMIT 1
+        """,
+        (func_id, func_id),
+    ) is not None
+
+
+def validar_funcionario(form, senha, setores, equipes, editando=None):
     erros = {}
 
     usuario = form["usuario"]
@@ -452,37 +511,46 @@ def validar_funcionario(form, senha, editando_id=None):
         erros["usuario"] = "Informe o nome de usuário."
     elif " " in usuario:
         erros["usuario"] = "O nome de usuário não pode ter espaços."
-    elif any(f["usuario"].lower() == usuario.lower() and f["id"] != editando_id
-             for f in FUNCIONARIOS):
+    elif consultar_um("SELECT 1 FROM usuario WHERE NomeUsuario = %s AND IdUsuario <> %s",
+                      (normalizar_usuario(usuario), editando["id"] if editando else 0)):
         erros["usuario"] = "Esse nome de usuário já está em uso."
 
     # Ao editar, senha em branco significa "manter a atual".
-    if (editando_id is None or senha) and len(senha) < 6:
+    if (editando is None or senha) and len(senha) < 6:
         erros["senha"] = "A senha precisa ter pelo menos 6 caracteres."
 
-    if form["setor"] not in {str(s["id"]) for s in SETORES}:
-        erros["setor"] = "Selecione o setor."
-
+    # Funcionário padrão precisa de setor; técnico pode ter equipe (opcional).
     if form["tipo"] not in ("padrao", "tecnico"):
         erros["tipo"] = "Escolha o tipo de funcionário."
-    elif form["tipo"] == "tecnico" and form["equipe"] not in {str(e["id"]) for e in EQUIPES}:
-        erros["equipe"] = "Selecione a equipe do técnico."
+    elif form["tipo"] == "padrao" and form["setor"] not in {str(s["id"]) for s in setores}:
+        erros["setor"] = "Selecione o setor."
+    elif form["tipo"] == "tecnico" and form["equipe"] and form["equipe"] not in {str(e["id"]) for e in equipes}:
+        erros["equipe"] = "Selecione uma equipe válida."
+
+    if editando and form["tipo"] != editando["tipo"] and tem_chamados(editando["id"]):
+        erros["tipo"] = "Não é possível mudar o tipo: há chamados ligados a este funcionário."
 
     return erros
 
 
-def tela_cadastro(form, erros, editando_id=None):
-    # A tabela mostra os NOMES do setor e da equipe (o funcionário guarda só os ids).
-    lista = [
-        {**f, "setor": nome_por_id(SETORES, f["setor_id"]), "equipe": nome_por_id(EQUIPES, f["equipe_id"])}
-        for f in FUNCIONARIOS
-    ]
+def salvar_tipo(id_usuario, form):
+    """Grava a linha de funcionariopadrao ou funcionariotecnico do usuário."""
+    if form["tipo"] == "tecnico":
+        executar("INSERT INTO funcionariotecnico (IdUsuario, IdEquipe) VALUES (%s, %s)",
+                 (id_usuario, int(form["equipe"]) if form["equipe"] else None))
+    else:
+        executar("INSERT INTO funcionariopadrao (IdUsuario, IdSetor) VALUES (%s, %s)",
+                 (id_usuario, int(form["setor"])))
+
+
+def tela_cadastro(form, erros, setores, equipes, editando_id=None):
+    msg = request.args.get("msg")
     return render_template(
         "public/funcionarios.html",
-        form=form, erros=erros, lista=lista, editando_id=editando_id,
-        setores=sorted(SETORES, key=lambda i: i["nome"].lower()),
-        equipes=sorted(EQUIPES, key=lambda i: i["nome"].lower()),
-        mensagem=MENSAGENS.get(request.args.get("msg")),
+        form=form, erros=erros, editando_id=editando_id,
+        lista=consultar(SQL_FUNCIONARIOS + " ORDER BY u.NomeUsuario", (session["empresa_id"],)),
+        setores=setores, equipes=equipes,
+        mensagem=MENSAGENS.get(msg), mensagem_erro=msg == "em_uso",
     )
 
 
@@ -491,24 +559,24 @@ def tela_cadastro(form, erros, editando_id=None):
 @login_obrigatorio
 def funcionarios():
     form, erros = form_vazio(), {}
+    setores, equipes = listar_setores(session["empresa_id"]), listar_equipes(session["empresa_id"])
 
     if request.method == "POST":
         form = {c: request.form.get(c, "").strip() for c in form}
         senha = request.form.get("senha", "")
-        erros = validar_funcionario(form, senha)
+        erros = validar_funcionario(form, senha, setores, equipes)
 
         if not erros:
-            FUNCIONARIOS.append({
-                "id": next(_proximo_id),
-                "usuario": form["usuario"],
-                "senha_hash": generate_password_hash(senha),  # nunca guarde a senha pura
-                "tipo": form["tipo"],
-                "setor_id": int(form["setor"]),
-                "equipe_id": int(form["equipe"]) if form["tipo"] == "tecnico" else None,
-            })
+            with transacao():
+                id_usuario = executar(
+                    "INSERT INTO usuario (IdEmpresa, NomeUsuario, SenhaHash) VALUES (%s, %s, %s)",
+                    (session["empresa_id"], normalizar_usuario(form["usuario"]),
+                     generate_password_hash(senha)),  # nunca guarde a senha pura
+                )
+                salvar_tipo(id_usuario, form)
             return redirect(url_for("funcionarios", msg="criado"))
 
-    return tela_cadastro(form, erros)
+    return tela_cadastro(form, erros, setores, equipes)
 
 
 # UPDATE
@@ -518,11 +586,12 @@ def editar_funcionario(func_id):
     func = buscar_funcionario(func_id)
     if func is None:
         abort(404)
+    setores, equipes = listar_setores(session["empresa_id"]), listar_equipes(session["empresa_id"])
 
     form = {
         "usuario": func["usuario"],
         "tipo": func["tipo"],
-        "setor": str(func["setor_id"]),
+        "setor": str(func["setor_id"] or ""),
         "equipe": str(func["equipe_id"] or ""),
     }
     erros = {}
@@ -530,103 +599,63 @@ def editar_funcionario(func_id):
     if request.method == "POST":
         form = {c: request.form.get(c, "").strip() for c in form}
         senha = request.form.get("senha", "")
-        erros = validar_funcionario(form, senha, editando_id=func_id)
+        erros = validar_funcionario(form, senha, setores, equipes, editando=func)
 
         if not erros:
-            func["usuario"] = form["usuario"]
-            func["tipo"] = form["tipo"]
-            func["setor_id"] = int(form["setor"])
-            func["equipe_id"] = int(form["equipe"]) if form["tipo"] == "tecnico" else None
-            if senha:
-                func["senha_hash"] = generate_password_hash(senha)
+            with transacao():
+                executar("UPDATE usuario SET NomeUsuario = %s WHERE IdUsuario = %s",
+                         (normalizar_usuario(form["usuario"]), func_id))
+                if senha:
+                    executar("UPDATE usuario SET SenhaHash = %s WHERE IdUsuario = %s",
+                             (generate_password_hash(senha), func_id))
+                if form["tipo"] == func["tipo"] == "padrao":
+                    executar("UPDATE funcionariopadrao SET IdSetor = %s WHERE IdUsuario = %s",
+                             (int(form["setor"]), func_id))
+                elif form["tipo"] == func["tipo"] == "tecnico":
+                    executar("UPDATE funcionariotecnico SET IdEquipe = %s WHERE IdUsuario = %s",
+                             (int(form["equipe"]) if form["equipe"] else None, func_id))
+                else:  # mudou de tipo (só é permitido se não houver chamados ligados)
+                    executar("DELETE FROM funcionariopadrao WHERE IdUsuario = %s", (func_id,))
+                    executar("DELETE FROM funcionariotecnico WHERE IdUsuario = %s", (func_id,))
+                    salvar_tipo(func_id, form)
             return redirect(url_for("funcionarios", msg="editado"))
 
-    return tela_cadastro(form, erros, editando_id=func_id)
+    return tela_cadastro(form, erros, setores, equipes, editando_id=func_id)
 
 
 # DELETE
 @app.route("/funcionarios/<int:func_id>/excluir", methods=["POST"])
 @login_obrigatorio
 def excluir_funcionario(func_id):
-    func = buscar_funcionario(func_id)
-    if func is None:
+    if buscar_funcionario(func_id) is None:
         abort(404)
-    FUNCIONARIOS.remove(func)
+    if tem_chamados(func_id):
+        return redirect(url_for("funcionarios", msg="em_uso"))
+    with transacao():
+        executar("DELETE FROM funcionariopadrao WHERE IdUsuario = %s", (func_id,))
+        executar("DELETE FROM funcionariotecnico WHERE IdUsuario = %s", (func_id,))
+        executar("DELETE FROM usuario WHERE IdUsuario = %s", (func_id,))
     return redirect(url_for("funcionarios", msg="excluido"))
-
-
-
-
-# Login
-
-USUARIOS_MOCK = [
-    {"id": 1, "usuario": "FELIPE", "senha": "123456", "tipo": "padrao", "id_empresa": 1},
-    {"id": 2, "usuario": "RAPHAEL", "senha": "654321", "tipo": "tecnico", "id_empresa": 1},
-    {"id": 3, "usuario": "GABRIEL", "senha": "111111", "tipo": "tecnico", "id_empresa": 1},
-]
-
-
-def autenticar(usuario, senha):
-    for conta in USUARIOS_MOCK:
-        if conta["usuario"] == usuario and conta["senha"] == senha:
-            return conta
-    return None
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    usuario = ""
-
-    if request.method == "POST":
-        usuario = request.form.get("usuario", "").upper().replace(" ", "")
-        senha = request.form.get("senha", "")
-        conta = autenticar(usuario, senha)
-
-        if conta is None:
-            flash("Usuário ou senha inválidos.")
-        else:
-            session["id_usuario"] = conta["id"]
-            session["id_empresa"] = conta["id_empresa"]
-            session["tipo"] = conta["tipo"]
-
-            if conta["tipo"] == "tecnico":
-                return redirect(url_for("dashboard_tecnico"))
-            return redirect(url_for("meus_chamados"))
-
-    return render_template("public/login.html", usuario=usuario)
-
-
-
 
 
 # Abrir chamado (funcionário padrão)
 
 LIMITE_DESCRICAO = 500
-
-
-CHAMADOS_MOCK = []
-_proximo_chamado = count(1)
+PRIORIDADE_PADRAO = 4  # "Baixa": o técnico ajusta depois, se precisar
 
 
 def salvar_chamado(id_empresa, id_funcionario, descricao):
-    
-    CHAMADOS_MOCK.append({
-        "id": next(_proximo_chamado),
-        "id_empresa": id_empresa,
-        "id_funcionario": id_funcionario,
-        "descricao": descricao,
-        "status": "aguardando",
-        "aberto_em": datetime.now(),
-        "id_prioridade": 1,
-        "id_tecnico": None,
-        "previsao": None,
-        "resolvido_em": None,
-        "comentarios": [],
-        "solucao": None,
-    })
+    executar(
+        """
+        INSERT INTO chamado (IdEmpresa, IdFuncionario, IdPrioridade, Descricao, DataHoraAbertura, Status)
+        VALUES (%s, %s, %s, %s, %s, 'aguardando')
+        """,
+        (id_empresa, id_funcionario, PRIORIDADE_PADRAO, descricao, datetime.now()),
+    )
 
 
 @app.route("/abrir-chamado", methods=["GET", "POST"])
+@portal_obrigatorio("padrao")
 def abrir_chamado():
     descricao, erro = "", None
 
@@ -638,7 +667,7 @@ def abrir_chamado():
         elif len(descricao) > LIMITE_DESCRICAO:
             erro = f"A descrição pode ter no máximo {LIMITE_DESCRICAO} caracteres."
         else:
-            salvar_chamado(session.get("id_empresa"), session.get("id_usuario"), descricao)
+            salvar_chamado(session.get("id_empresa"), session.get("id_funcionario"), descricao)
             flash("Chamado aberto com sucesso!")
             return redirect(url_for("meus_chamados"))
 
@@ -652,36 +681,44 @@ def abrir_chamado():
 # Meus chamados (funcionário padrão)
 
 def listar_chamados_do_funcionario(id_empresa, id_funcionario):
-    meus = []
-    for chamado in CHAMADOS_MOCK:
-        if chamado["id_empresa"] == id_empresa and chamado["id_funcionario"] == id_funcionario:
-            meus.append(chamado)
-    return meus
+    return consultar(
+        """
+        SELECT IdChamado AS id, IdEmpresa AS id_empresa, Descricao AS descricao, Status AS status,
+               DataHoraAbertura AS aberto_em, IdPrioridade AS id_prioridade
+          FROM chamado
+         WHERE IdEmpresa = %s AND IdFuncionario = %s
+         ORDER BY DataHoraAbertura DESC
+        """,
+        (id_empresa, id_funcionario),
+    )
 
 
 def posicao_na_fila(chamado):
-    posicao = 1
-    for outro in CHAMADOS_MOCK:
-        if (outro["id_empresa"] == chamado["id_empresa"]
-                and outro["status"] == "aguardando"
-                and outro["aberto_em"] < chamado["aberto_em"]):
-            posicao += 1
-    return posicao
+    # A fila é a mesma que o técnico vê: primeiro a prioridade, depois a ordem de
+    # abertura (IdChamado cresce na ordem em que os chamados são abertos).
+    na_frente = consultar_um(
+        """
+        SELECT COUNT(*) AS total FROM chamado
+         WHERE IdEmpresa = %s AND Status = 'aguardando'
+           AND (IdPrioridade < %s OR (IdPrioridade = %s AND IdChamado < %s))
+        """,
+        (chamado["id_empresa"], chamado["id_prioridade"], chamado["id_prioridade"], chamado["id"]),
+    )
+    return na_frente["total"] + 1
 
 
 def excluir_chamado(id_empresa, id_funcionario, id_chamado):
-    for chamado in CHAMADOS_MOCK:
-        if (chamado["id"] == id_chamado
-                and chamado["id_empresa"] == id_empresa
-                and chamado["id_funcionario"] == id_funcionario):
-            CHAMADOS_MOCK.remove(chamado)
-            return True
-    return False
+    apagados = executar(
+        "DELETE FROM chamado WHERE IdChamado = %s AND IdEmpresa = %s AND IdFuncionario = %s",
+        (id_chamado, id_empresa, id_funcionario),
+    )
+    return apagados > 0
 
 
 @app.route("/meus-chamados")
+@portal_obrigatorio("padrao")
 def meus_chamados():
-    chamados = listar_chamados_do_funcionario(session.get("id_empresa"), session.get("id_usuario"))
+    chamados = listar_chamados_do_funcionario(session.get("id_empresa"), session.get("id_funcionario"))
 
     agora = datetime.now()
     total_mes = 0
@@ -698,8 +735,9 @@ def meus_chamados():
 
 
 @app.route("/meus-chamados/<int:id_chamado>/excluir", methods=["POST"])
+@portal_obrigatorio("padrao")
 def excluir_meu_chamado(id_chamado):
-    excluiu = excluir_chamado(session.get("id_empresa"), session.get("id_usuario"), id_chamado)
+    excluiu = excluir_chamado(session.get("id_empresa"), session.get("id_funcionario"), id_chamado)
     if not excluiu:
         abort(404)
     flash("Chamado excluído.")
@@ -709,61 +747,53 @@ def excluir_meu_chamado(id_chamado):
 # ---------------------------------------------------------------
 # Dashboard do técnico
 # ---------------------------------------------------------------
-PRIORIDADES_MOCK = [
-    {"id": 1, "descricao": "Baixa"},
-    {"id": 2, "descricao": "Média"},
-    {"id": 3, "descricao": "Alta"},
-]
+SQL_CHAMADOS_TECNICO = """
+    SELECT c.IdChamado AS id, c.Descricao AS descricao, c.Status AS status,
+           c.DataHoraAbertura AS aberto_em, c.Previsao AS previsao, c.IdTecnico AS id_tecnico,
+           c.IdPrioridade AS id_prioridade, p.DescricaoPrioridade AS prioridade,
+           u.NomeUsuario AS funcionario
+      FROM chamado c
+      JOIN prioridade p ON p.IdPrioridade = c.IdPrioridade
+      JOIN funcionariopadrao fp ON fp.IdFuncionario = c.IdFuncionario
+      JOIN usuario u ON u.IdUsuario = fp.IdUsuario
+"""
 
 
-def nome_da_prioridade(id_prioridade):
-    for prioridade in PRIORIDADES_MOCK:
-        if prioridade["id"] == id_prioridade:
-            return prioridade["descricao"]
-    return "–"
-
-
-def nome_do_usuario(id_usuario):
-    for conta in USUARIOS_MOCK:
-        if conta["id"] == id_usuario:
-            return conta["usuario"]
-    return "–"
+def listar_prioridades():
+    return consultar("SELECT IdPrioridade AS id, DescricaoPrioridade AS descricao FROM prioridade ORDER BY IdPrioridade")
 
 
 def listar_chamados_pendentes(id_empresa):
-    pendentes = []
-    for chamado in CHAMADOS_MOCK:
-        if chamado["id_empresa"] == id_empresa and chamado["status"] != "finalizado":
-            pendentes.append(chamado)
-    return pendentes
+    return consultar(
+        SQL_CHAMADOS_TECNICO
+        + " WHERE c.IdEmpresa = %s AND c.Status <> 'finalizado' ORDER BY c.IdPrioridade, c.IdChamado",
+        (id_empresa,),
+    )
 
 
 def contar_resolvidos_hoje(id_tecnico):
-    hoje = date.today()
-    total = 0
-    for chamado in CHAMADOS_MOCK:
-        if (chamado["id_tecnico"] == id_tecnico
-                and chamado["status"] == "finalizado"
-                and chamado["resolvido_em"].date() == hoje):
-            total += 1
-    return total
+    resultado = consultar_um(
+        """
+        SELECT COUNT(*) AS total FROM chamado
+         WHERE IdTecnico = %s AND Status = 'finalizado' AND DATE(DataHoraFechamento) = %s
+        """,
+        (id_tecnico, date.today()),
+    )
+    return resultado["total"]
 
 
 def tela_tecnico(chamado_aberto=None):
     pendentes = listar_chamados_pendentes(session.get("id_empresa"))
-    for chamado in pendentes:
-        chamado["funcionario"] = nome_do_usuario(chamado["id_funcionario"])
-        chamado["prioridade"] = nome_da_prioridade(chamado["id_prioridade"])
-
-    resolvidos_hoje = contar_resolvidos_hoje(session.get("id_usuario"))
+    resolvidos_hoje = contar_resolvidos_hoje(session.get("id_tecnico"))
     return render_template(
         "public/dashboard_tecnico.html",
         chamados=pendentes, resolvidos_hoje=resolvidos_hoje,
-        aberto=chamado_aberto, prioridades=PRIORIDADES_MOCK,
+        aberto=chamado_aberto, prioridades=listar_prioridades(),
     )
 
 
 @app.route("/tecnico")
+@portal_obrigatorio("tecnico")
 def dashboard_tecnico():
     return tela_tecnico()
 
@@ -772,50 +802,64 @@ def dashboard_tecnico():
 # Modal de atendimento (técnico)
 
 def buscar_chamado(id_empresa, id_chamado):
-    for chamado in CHAMADOS_MOCK:
-        if chamado["id"] == id_chamado and chamado["id_empresa"] == id_empresa:
-            return chamado
-    return None
+    chamado = consultar_um(SQL_CHAMADOS_TECNICO + " WHERE c.IdEmpresa = %s AND c.IdChamado = %s",
+                           (id_empresa, id_chamado))
+    if chamado:
+        chamado["comentarios"] = consultar(
+            """
+            SELECT u.NomeUsuario AS autor, c.Texto AS texto, c.DataHora AS em
+              FROM comentario c JOIN usuario u ON u.IdUsuario = c.IdUsuario
+             WHERE c.IdChamado = %s ORDER BY c.DataHora
+            """,
+            (id_chamado,),
+        )
+    return chamado
+
+
+def chamado_em_aberto(id_chamado):
+    """Chamado da empresa do técnico que ainda não foi finalizado (senão, 404)."""
+    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
+    if chamado is None or chamado["status"] == "finalizado":
+        abort(404)
+    return chamado
 
 
 def erro_de_atendimento(chamado):
     # Só o técnico que assumiu o chamado pode alterá-lo.
     if chamado["id_tecnico"] is None:
         return "Assuma o chamado antes de fazer alterações."
-    if chamado["id_tecnico"] != session.get("id_usuario"):
+    if chamado["id_tecnico"] != session.get("id_tecnico"):
         return "Este chamado já foi assumido por outro técnico."
     return None
 
 
 @app.route("/tecnico/chamado/<int:id_chamado>")
+@portal_obrigatorio("tecnico")
 def ver_chamado(id_chamado):
-    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
-    if chamado is None or chamado["status"] == "finalizado":
-        abort(404)
-    return tela_tecnico(chamado)
+    return tela_tecnico(chamado_em_aberto(id_chamado))
 
 
 @app.route("/tecnico/chamado/<int:id_chamado>/assumir", methods=["POST"])
+@portal_obrigatorio("tecnico")
 def assumir_chamado(id_chamado):
-    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
-    if chamado is None:
-        abort(404)
+    chamado = chamado_em_aberto(id_chamado)
 
-    if chamado["id_tecnico"] is not None and chamado["id_tecnico"] != session.get("id_usuario"):
+    if chamado["id_tecnico"] is not None and chamado["id_tecnico"] != session.get("id_tecnico"):
         flash("Este chamado já foi assumido por outro técnico.", "erro")
         return redirect(url_for("dashboard_tecnico"))
 
-    chamado["id_tecnico"] = session.get("id_usuario")
-    chamado["status"] = "em_andamento"
+    executar(
+        "UPDATE chamado SET IdTecnico = %s, Status = 'em_andamento' WHERE IdChamado = %s AND IdTecnico IS NULL",
+        (session.get("id_tecnico"), id_chamado),
+    )
     flash("Chamado assumido.")
     return redirect(url_for("ver_chamado", id_chamado=id_chamado))
 
 
 @app.route("/tecnico/chamado/<int:id_chamado>/atualizar", methods=["POST"])
+@portal_obrigatorio("tecnico")
 def atualizar_chamado(id_chamado):
-    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
-    if chamado is None:
-        abort(404)
+    chamado = chamado_em_aberto(id_chamado)
 
     erro = erro_de_atendimento(chamado)
     if erro:
@@ -823,29 +867,28 @@ def atualizar_chamado(id_chamado):
         return redirect(url_for("dashboard_tecnico"))
 
     id_prioridade = request.form.get("id_prioridade", type=int)
-    if nome_da_prioridade(id_prioridade) != "–":
-        chamado["id_prioridade"] = id_prioridade
+    if id_prioridade not in {p["id"] for p in listar_prioridades()}:
+        id_prioridade = chamado["id_prioridade"]
 
     previsao = request.form.get("previsao", "").strip()
-    chamado["previsao"] = previsao[:25] or None
-
     comentario = request.form.get("comentario", "").strip()
-    if comentario:
-        chamado["comentarios"].append({
-            "autor": nome_do_usuario(session.get("id_usuario")),
-            "texto": comentario,
-            "em": datetime.now(),
-        })
+    with transacao():
+        executar("UPDATE chamado SET IdPrioridade = %s, Previsao = %s WHERE IdChamado = %s",
+                 (id_prioridade, previsao[:25] or None, id_chamado))
+        if comentario:
+            executar(
+                "INSERT INTO comentario (IdChamado, IdUsuario, Texto, DataHora) VALUES (%s, %s, %s, %s)",
+                (id_chamado, session.get("id_usuario"), comentario[:500], datetime.now()),
+            )
 
     flash("Alterações salvas.")
     return redirect(url_for("ver_chamado", id_chamado=id_chamado))
 
 
 @app.route("/tecnico/chamado/<int:id_chamado>/finalizar", methods=["POST"])
+@portal_obrigatorio("tecnico")
 def finalizar_chamado(id_chamado):
-    chamado = buscar_chamado(session.get("id_empresa"), id_chamado)
-    if chamado is None:
-        abort(404)
+    chamado = chamado_em_aberto(id_chamado)
 
     erro = erro_de_atendimento(chamado)
     if erro:
@@ -857,21 +900,18 @@ def finalizar_chamado(id_chamado):
         flash("Descreva a solução antes de finalizar o chamado.", "erro")
         return redirect(url_for("ver_chamado", id_chamado=id_chamado))
 
-    chamado["solucao"] = solucao
-    chamado["status"] = "finalizado"
-    chamado["resolvido_em"] = datetime.now()
+    agora = datetime.now()
+    minutos = int((agora - chamado["aberto_em"]).total_seconds() // 60)
+    executar(
+        """
+        UPDATE chamado SET Solucao = %s, Status = 'finalizado', DataHoraFechamento = %s, TempoGasto = %s
+         WHERE IdChamado = %s
+        """,
+        (solucao[:1000], agora, minutos, id_chamado),
+    )
     flash("Chamado finalizado.")
     return redirect(url_for("dashboard_tecnico"))
 
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
-
 if __name__ == "__main__":
     app.run(debug=True)
-
-    

@@ -36,18 +36,18 @@
     </form>
 
     <p class="auth__links">
-      O acesso é criado pela sua empresa.
+      Funcionários e técnicos entram por aqui. O acesso é criado pela sua empresa.
       <span aria-hidden="true">·</span>
       <a href="{{ url_for('inicio') }}">Voltar ao início</a>
     </p>
   </main>
 
-  <!-- Impede espaços no nome de usuário enquanto digita.
-       Se apagar este bloco, o servidor continua recusando espaços. -->
+  <!-- Usuário sempre em MAIÚSCULAS e sem espaço, já enquanto a pessoa digita.
+       Se apagar este bloco, o servidor faz a mesma conversão. -->
   <script>
     const campoUsuario = document.getElementById("usuario");
     campoUsuario.addEventListener("input", () => {
-      campoUsuario.value = campoUsuario.value.replace(/\s/g, "");
+      campoUsuario.value = campoUsuario.value.toUpperCase().replace(/\s/g, "");
     });
   </script>
 </body>

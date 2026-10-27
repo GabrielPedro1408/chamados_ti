@@ -35,9 +35,11 @@
   background: var(--fundo);
   color: var(--texto-suave);
 }
-.prioridade--1 { background: #e3eefb; color: #1d4f91; }
-.prioridade--2 { background: #fff1cc; color: #7a5200; }
-.prioridade--3 { background: #fde2df; color: #b3261e; }
+/* Ids da tabela prioridade: 1 Crítica, 2 Alta, 3 Média, 4 Baixa */
+.prioridade--1 { background: #b3261e; color: #fff; }
+.prioridade--2 { background: #fde2df; color: #b3261e; }
+.prioridade--3 { background: #fff1cc; color: #7a5200; }
+.prioridade--4 { background: #e3eefb; color: #1d4f91; }
 
 
 
