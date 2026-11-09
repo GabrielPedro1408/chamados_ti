@@ -10,8 +10,9 @@ from datetime import datetime, time, timedelta
 
 from werkzeug.security import generate_password_hash
 
-from src.app import app, primeiro_dia_mes
+from src.app import app
 from src.db import consultar_um, executar, transacao
+from src.utils import primeiro_dia_mes
 
 CNPJ = "11222333000181"
 SENHA = "123456"  # mesma senha para a empresa e todos os usuários de exemplo
